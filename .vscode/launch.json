@@ -1,0 +1,23 @@
+{
+	"configurations": [
+		{
+			// Using the chrome debugger to debug a Vue application
+			"type": "chrome",
+			"request": "launch",
+			"name": "Chrome launch",
+			// Set the URL to match the root URL of your application
+			"url": "http://localhost:8080",
+			"webRoot": "${workspaceRoot}/src",
+			/** Configure source map paths using the instructions below */
+			"sourceMapPathOverrides": {
+				"webpack:///./~/*": "${webRoot}/node_modules/*", // Example: "webpack:///./~/querystring/index.js" -> "/Users/me/project/node_modules/querystring/index.js"
+				"webpack:///./*": "${webRoot}/*", // Example: "webpack:///./src/app.js" -> "/Users/me/project/src/app.js",
+				"webpack:///*": "*", // Example: "webpack:///project/app.ts" -> "/project/app.ts"
+				"webpack:///src/*": "${webRoot}/*", // Example: "webpack:///src/app.js" -> "/Users/me/project/app.js"
+				"meteor://💻app/*": "${webRoot}/*"
+			},
+			"trace": true,
+			"preLaunchTask": "npm: start:dev"
+		}
+	]
+}

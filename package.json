@@ -1,0 +1,42 @@
+{
+	"name": "web-template",
+	"version": "1.0.0",
+	"description": "tempalte for web based projects",
+	"main": "index.js",
+	"scripts": {
+		"format": "npx prettier --write src/",
+		"lint": "npx eslint -c .eslintrc.json --ext ts --fix ./src",
+		"build": "npm run format && webpack --mode production",
+		"start:dev": "npm run format && webpack-dev-server --mode development",
+		"start": "npm run format && webpack serve --mode production",
+		"test": "jest"
+	},
+	"author": "Dan Kane",
+	"license": "ISC",
+	"devDependencies": {
+		"@babel/core": "^7.18.9",
+		"@jest/globals": "^29.7.0",
+		"@typescript-eslint/eslint-plugin": "^5.31.0",
+		"@typescript-eslint/parser": "^5.31.0",
+		"babel-loader": "^8.2.5",
+		"css-loader": "^6.7.1",
+		"eslint": "^8.20.0",
+		"eslint-config-prettier": "^8.5.0",
+		"html-webpack-plugin": "^5.5.0",
+		"prettier": "^2.7.1",
+		"style-loader": "^3.3.1",
+		"ts-jest": "^29.2.5",
+		"ts-loader": "^9.3.1",
+		"ts-node": "^10.9.2",
+		"tsconfig-paths": "^4.2.0",
+		"typescript": "^4.7.4",
+		"webpack": "^5.74.0",
+		"webpack-cli": "^4.10.0",
+		"webpack-dev-server": "^4.9.3"
+	},
+	"dependencies": {
+		"gl-matrix": "^3.4.3",
+		"uniqid": "^5.4.0",
+		"uuid": "^11.0.5"
+	}
+}
