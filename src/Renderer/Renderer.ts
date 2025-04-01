@@ -1,4 +1,4 @@
-import { vec4, mat4 } from "gl-matrix";
+import { vec4, mat4, vec3 } from "gl-matrix";
 
 import {
 	VertexBuffer,
@@ -13,6 +13,7 @@ import { Material, MaterialProperty, MaterialPropertyType } from "./Material";
 import { Scene } from "./Scene";
 import { SceneObject } from "./SceneObject";
 import { Camera } from "./Camera";
+import { PointLight } from "./Light";
 
 /**
  * Renders a scene to a WebGL canvas
@@ -28,7 +29,7 @@ class Renderer {
 	 */
 	constructor(gl: WebGL2RenderingContext) {
 		this._gl = gl;
-		this._gl.cullFace(this._gl.FRONT_AND_BACK);
+		this._gl.cullFace(this._gl.BACK);
 	}
 
 	/**
@@ -106,8 +107,26 @@ class Renderer {
 				"perspective",
 				cam.perspectiveMatrix
 			);
-			this.setUniform4Mat(shaderProgram, "view", cam.viewMatrix);
+
 			this.setUniform4Mat(shaderProgram, "transform", obj.transform);
+			this.setUniform4Mat(shaderProgram, "view", cam.viewMatrix);
+
+			// setup lights
+			this.setUniform1i(
+				shaderProgram,
+				"numLights",
+				scene.lightList.length
+			);
+			this.setUniform3f(
+				shaderProgram,
+				"ambientLight",
+				scene.ambientLight
+			);
+			scene.lightList.forEach((light: PointLight, i: number) => {
+				if (light instanceof PointLight) {
+					this.setPointLight(shaderProgram, `lightList[${i}]`, light);
+				}
+			});
 
 			this.drawElements(
 				this._gl.TRIANGLES,
@@ -297,6 +316,21 @@ class Renderer {
 	}
 
 	/**
+	 * Sets an vec3 uniform in a shader program
+	 *
+	 * @param shaderProgram - The shader program to set the vec4 in
+	 * @param name - The name of the vec3 uniform
+	 * @param int - The value of the vec3 uniform
+	 */
+	setUniform3f(shaderProgram: ShaderProgram, name: string, vec3: vec3): void {
+		const location: WebGLUniformLocation = this._gl.getUniformLocation(
+			shaderProgram.program,
+			name
+		);
+		this._gl.uniform3fv(location, vec3);
+	}
+
+	/**
 	 * Sets an vec4 uniform in a shader program
 	 *
 	 * @param shaderProgram - The shader program to set the vec4 in
@@ -328,6 +362,21 @@ class Renderer {
 			name
 		);
 		this._gl.uniformMatrix4fv(location, false, mat4);
+	}
+
+	/**
+	 * Sets the data in a point light in a shader program
+	 *
+	 * @param shaderProgram - The shader program to set the point light in
+	 * @param name - The name of the point light
+	 * @param light - The point light object
+	 */
+	setPointLight(
+		shaderProgram: ShaderProgram,
+		name: string,
+		light: PointLight
+	) {
+		this.setUniform3f(shaderProgram, `${name}.pos`, light.position);
 	}
 
 	/**

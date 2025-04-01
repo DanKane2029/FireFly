@@ -1,4 +1,4 @@
-import { mat3, quat, vec3 } from "gl-matrix";
+import { mat3, vec3 } from "gl-matrix";
 
 /**
  * Converts a 3x3 rotation matrix to a vector of Euler angles (x, y z)
@@ -8,9 +8,9 @@ import { mat3, quat, vec3 } from "gl-matrix";
  */
 function rotationMatrixToEulerAngles(rotMat: mat3): vec3 {
 	const eps = 0.0001;
-	let theta = 0,
-		phi = 0,
-		psi = 0;
+	let theta = 0;
+	let phi = 0;
+	let psi = 0;
 
 	if (-rotMat[2] >= 1.0 - eps) {
 		theta = Math.PI / 2;

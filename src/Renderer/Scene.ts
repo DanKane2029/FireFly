@@ -1,13 +1,16 @@
-import { vec4 } from "gl-matrix";
+import { vec3, vec4 } from "gl-matrix";
 
 import { SceneObject } from "./SceneObject";
 import { Camera } from "./Camera";
+import { PointLight } from "./Light";
 
 /**
  * Organizes the camera and objects that will be rendered to the screen
  */
 class Scene {
 	private _objectList: SceneObject[];
+	private _lightList: PointLight[];
+	private _ambientLight: vec3;
 	private _camera: Camera;
 	private _backgroundColor: vec4;
 	private _deltaTime: number;
@@ -18,15 +21,19 @@ class Scene {
 	 *
 	 * @param deltaTime - A number that defines how quickly time passes in the scene
 	 */
-	constructor(deltaTime: number, viewWidth: number, viewHeight: number) {
+	constructor(
+		deltaTime: number,
+		viewWidth: number,
+		viewHeight: number,
+		fov = 45,
+		ambientLight = vec3.fromValues(0.1, 0.1, 0.1)
+	) {
 		this._objectList = [];
+		this._lightList = [];
 		this._deltaTime = deltaTime;
 		this._time = 0;
-		const focalLength = 10.0;
-		const fov =
-			2 * Math.atan(viewHeight / (2 * focalLength)) * (180 / Math.PI);
-		this._camera = new Camera(viewWidth / viewHeight, 90, 0.01, 1000);
-		console.log(fov);
+		this._camera = new Camera(viewWidth / viewHeight, fov, 0.01, 1000);
+		this._ambientLight = ambientLight;
 	}
 
 	/**
@@ -41,6 +48,34 @@ class Scene {
 	 */
 	set objectList(objectList: SceneObject[]) {
 		this._objectList = objectList;
+	}
+
+	/**
+	 * Gets all the lights in the scene
+	 */
+	get lightList(): PointLight[] {
+		return this._lightList;
+	}
+
+	/**
+	 * Sets the light list in the scene
+	 */
+	set lightList(lightList: PointLight[]) {
+		this._lightList = lightList;
+	}
+
+	/**
+	 * Gets the ambient light value of the scene
+	 */
+	get ambientLight(): vec3 {
+		return this._ambientLight;
+	}
+
+	/**
+	 * Sets the ambient light value of the scene
+	 */
+	set ambientLight(ambientLight: vec3) {
+		this._ambientLight = ambientLight;
 	}
 
 	/**
@@ -99,6 +134,15 @@ class Scene {
 	 */
 	addObject(object: SceneObject) {
 		this._objectList.push(object);
+	}
+
+	/**
+	 * Adds a light to the scene
+	 *
+	 * @param light - The light to add to the scene
+	 */
+	addLight(light: PointLight) {
+		this._lightList.push(light);
 	}
 
 	/**

@@ -1,41 +1,48 @@
 import { vec3 } from "gl-matrix";
 
-interface Light {
-	getLightVector(position?: vec3): vec3;
-}
-
-class PointLight implements Light {
+/**
+ * Light source radiating from a single point
+ */
+class PointLight {
 	private _position: vec3;
 
+	/**
+	 * Creates a new point light at a 3D point
+	 *
+	 * @param position - The 3D position the point light is at
+	 */
 	constructor(position: vec3) {
 		this._position = position;
 	}
 
+	/**
+	 * Gets the position of the point light
+	 */
 	get position(): vec3 {
 		return this._position;
 	}
 
+	/**
+	 * Sets the position of the point light
+	 */
 	set position(position: vec3) {
 		this._position = position;
 	}
-
-	getLightVector(position?: vec3): vec3 {
-		const lightVector = vec3.create();
-		vec3.sub(lightVector, this._position, position);
-		vec3.normalize(lightVector, lightVector);
-		return lightVector;
-	}
 }
 
-class DirectionalLight implements Light {
+/**
+ * A light source the radiates in a single direction
+ */
+class DirectionalLight {
 	private _lightDirection: vec3;
 
+	/**
+	 * Creates a new directional light source object
+	 *
+	 * @param lightDirection - The direction the light source radiates from
+	 */
 	constructor(lightDirection: vec3) {
 		this._lightDirection = lightDirection;
-	}
-
-	getLightVector(position?: vec3): vec3 {
-		return vec3.fromValues(0, 0, 0);
 	}
 }
 

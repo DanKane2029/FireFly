@@ -8,6 +8,9 @@ import { OrbitalControls } from "../Controller/OrbitalCamera";
 
 import { cube } from "../SceneObjects/Cube";
 import { createSnowman } from "../SceneObjects/Snowman";
+import { PointLight } from "../Renderer/Light";
+import { sphere } from "../SceneObjects/Sphere";
+import { SceneObject } from "../Renderer/SceneObject";
 
 /**
  * A class that holds and organizes the higher level functionality and objects that the application needs to run
@@ -157,11 +160,15 @@ class App {
 	 */
 	setup(): void {
 		this.scene.backgroundColor = [0.05, 0.25, 0.05, 1.0];
+		this.scene.ambientLight = [0.1, 0.1, 0.1];
 		this.setController(new OrbitalControls());
 		this.setControllerSwitches();
 
 		this.scene.camera.translation = [0, 0, 2];
 		this.scene.camera.lookAt([0, 0, 0]);
+
+		const light = new PointLight([5, 0, 10]);
+		this.scene.addLight(light);
 
 		const snowman = createSnowman();
 		snowman.forEach((obj) => this.scene.addObject(obj));

@@ -185,8 +185,8 @@ class Camera {
 		const rotVec: vec3 = rotationMatrixToEulerAngles(newRotMat);
 
 		this.rotation = vec3.fromValues(
-			(rotVec[0] * 180) / Math.PI,
-			(rotVec[1] * 180) / Math.PI,
+			-(rotVec[0] * 180) / Math.PI + 180,
+			(rotVec[1] * 180) / Math.PI + 180,
 			(rotVec[2] * 180) / Math.PI
 		);
 

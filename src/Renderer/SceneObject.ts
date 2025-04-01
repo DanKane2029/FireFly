@@ -5,6 +5,7 @@ import { VertexBuffer, IndexBuffer } from "./Buffer";
 import { Material, MaterialProperty, MaterialPropertyType } from "./Material";
 import { UpdateFunction } from "./UpdateFunction";
 import { Texture } from "./Texture";
+import { Mesh } from "../Geometry/Mesh";
 
 /**
  * An object that can be rendered to the scene
@@ -12,9 +13,9 @@ import { Texture } from "./Texture";
 class SceneObject {
 	private _name: string;
 	private _id: string;
-	//private _mesh: Mesh;
-	private _vertexBuffer: VertexBuffer;
-	private _indexBuffer: IndexBuffer;
+	private _mesh: Mesh;
+	// private _vertexBuffer: VertexBuffer;
+	// private _indexBuffer: IndexBuffer;
 	private _material: Material;
 	private _translation: vec3;
 	private _scale: vec3;
@@ -30,14 +31,11 @@ class SceneObject {
 	 * @param indexBuffer - The index buffer that holds the index information of teh scene object
 	 * @param material - The material of the scene object
 	 */
-	constructor(
-		vertexBuffer: VertexBuffer,
-		indexBuffer: IndexBuffer,
-		material: Material
-	) {
+	constructor(mesh: Mesh, material: Material) {
 		this._id = uuidv4();
-		this._vertexBuffer = vertexBuffer;
-		this._indexBuffer = indexBuffer;
+		this._mesh = mesh;
+		// this._vertexBuffer = vertexBuffer;
+		// this._indexBuffer = indexBuffer;
 		this._material = material;
 		this._translation = [0, 0, 0];
 		this._scale = [1, 1, 1];
@@ -71,28 +69,14 @@ class SceneObject {
 	 * Gets the scene object vertex buffer
 	 */
 	get vertexBuffer(): VertexBuffer {
-		return this._vertexBuffer;
-	}
-
-	/**
-	 * Sets the vertex buffer of the scene object
-	 */
-	set vertexBuffer(vertexBuffer: VertexBuffer) {
-		this._vertexBuffer = vertexBuffer;
+		return this._mesh.vertexBuffer;
 	}
 
 	/**
 	 * Gets the index buffer of the scene object
 	 */
 	get indexBuffer(): IndexBuffer {
-		return this._indexBuffer;
-	}
-
-	/**
-	 * Sets the index buffer if the scene object
-	 */
-	set indexBuffer(vertexBuffer: IndexBuffer) {
-		this._indexBuffer = vertexBuffer;
+		return this._mesh.indexBuffer;
 	}
 
 	/**
@@ -172,10 +156,10 @@ class SceneObject {
 	 * @param indexBuffer - The updated index buffer of the new geometry
 	 * @param vertexBuffer - The updated vertex buffer of the new geometry
 	 */
-	updateGeometry(indexBuffer: IndexBuffer, vertexBuffer: VertexBuffer): void {
-		this._indexBuffer = indexBuffer;
-		this._vertexBuffer = vertexBuffer;
-	}
+	// updateGeometry(indexBuffer: IndexBuffer, vertexBuffer: VertexBuffer): void {
+	// 	this._mesh.indexBuffer = indexBuffer;
+	// 	this._mesh.vertexBuffer = vertexBuffer;
+	// }
 
 	/**
 	 * Gets and calculates the tranform matrix for the scene object
@@ -216,8 +200,7 @@ class SceneObject {
 	 */
 	clone(): SceneObject {
 		const clone = new SceneObject(
-			this.vertexBuffer.clone(),
-			this.indexBuffer.clone(),
+			this._mesh.clone(),
 			this.material.clone()
 		);
 		clone.name = this.name;
@@ -232,8 +215,8 @@ class SceneObject {
 	 * Sets the created boolean of each buffer and texture in the object to false
 	 */
 	resetCreated(): void {
-		this._indexBuffer.created = false;
-		this._vertexBuffer.created = false;
+		this._mesh.indexBuffer.created = false;
+		this._mesh.vertexBuffer.created = false;
 
 		this._material.program.created = false;
 		this._material.program.vertexShader.created = false;

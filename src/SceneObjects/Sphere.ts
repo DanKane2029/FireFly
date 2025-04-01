@@ -1,29 +1,18 @@
-import {
-	VertexBuffer,
-	IndexBuffer,
-	VertexBufferLayout,
-	VertexTypes,
-} from "../Renderer/Buffer";
 import { Shader, ShaderProgram, ShaderType } from "../Renderer/Shader";
 import { Material, MaterialPropertyType } from "../Renderer/Material";
 import { SceneObject } from "../Renderer/SceneObject";
 
-import VertShader from "../Shaders/Basic.vert.glsl";
-import FragShader from "../Shaders/Basic.frag.glsl";
-
 import VertLightingShader from "../Shaders/Lighting.vert.glsl";
 import FragLightingShader from "../Shaders/Lighting.frag.glsl";
-import { Box } from "../Geometry/Box";
-import { vec3 } from "gl-matrix";
 import { Mesh } from "../Geometry/Mesh";
+import { Sphere } from "../Geometry/Sphere";
 
 /**
- * Creates a cube scene object to be used within the application. This is mainly used for testing.
+ * Creates a sphere scene object to be used within the application. This is mainly used for testing.
  */
 
-const boxGeometry: Box = new Box(vec3.fromValues(2, 2, 2));
-
-const boxMesh: Mesh = boxGeometry.calculateMesh();
+const sphereGeometry = new Sphere(1);
+const sphereMesh: Mesh = sphereGeometry.calculateMesh(32);
 
 const vertexShader: Shader = new Shader(VertLightingShader, ShaderType.VERTEX);
 
@@ -45,7 +34,7 @@ const material: Material = new Material("Cube Material", shaderProgram, [
 	},
 ]);
 
-const cube: SceneObject = new SceneObject(boxMesh, material);
-cube.name = "Cube";
+const sphere: SceneObject = new SceneObject(sphereMesh, material);
+sphere.name = "Sphere";
 
-export { cube };
+export { sphere };

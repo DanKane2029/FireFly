@@ -13,7 +13,7 @@ import {
 class OrbitalControls implements Controller {
 	private _mouseDownPoint: vec2 | undefined;
 	private _mouseDownCamPos: vec3 | undefined;
-	private _sensitivity = 0.5;
+	private _sensitivity = 1.3;
 
 	/**
 	 * Moves the camera coser or further away from the origin.
@@ -78,7 +78,7 @@ class OrbitalControls implements Controller {
 
 			const WORLD_UP = vec3.fromValues(0, 1, 0);
 			const right = vec3.create();
-			vec3.cross(right, dir, WORLD_UP);
+			vec3.cross(right, WORLD_UP, dir);
 			vec3.normalize(right, right);
 
 			const up = vec3.create();

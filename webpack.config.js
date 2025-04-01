@@ -1,6 +1,5 @@
 const path = require('path');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
-const { debug } = require('webpack');
 
 module.exports = {
 	entry: './src/index.ts',
@@ -51,6 +50,10 @@ module.exports = {
 				test: /\.s[ac]ss$/i,
 				use: ['style-loader', 'css-loader', 'sass-loader'],
 			},
-		],
+			{
+				test: /\.(glsl|vs|fs)$/,
+                loader: 'ts-shader-loader'
+			}
+		]
 	},
 }
