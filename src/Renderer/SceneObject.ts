@@ -1,6 +1,6 @@
 import { vec3, mat4, quat } from "gl-matrix";
-import { v4 as uuidv4 } from "uuid";
 
+import { IdManager } from "./IdCounter";
 import { VertexBuffer, IndexBuffer } from "./Buffer";
 import { Material, MaterialProperty, MaterialPropertyType } from "./Material";
 import { UpdateFunction } from "./UpdateFunction";
@@ -12,10 +12,8 @@ import { Mesh } from "../Geometry/Mesh";
  */
 class SceneObject {
 	private _name: string;
-	private _id: string;
+	private _id: number;
 	private _mesh: Mesh;
-	// private _vertexBuffer: VertexBuffer;
-	// private _indexBuffer: IndexBuffer;
 	private _material: Material;
 	private _translation: vec3;
 	private _scale: vec3;
@@ -32,7 +30,7 @@ class SceneObject {
 	 * @param material - The material of the scene object
 	 */
 	constructor(mesh: Mesh, material: Material) {
-		this._id = uuidv4();
+		this._id = IdManager.getId();
 		this._mesh = mesh;
 		// this._vertexBuffer = vertexBuffer;
 		// this._indexBuffer = indexBuffer;
@@ -61,7 +59,7 @@ class SceneObject {
 	/**
 	 * Gets the scene object ID
 	 */
-	get id(): string {
+	get id(): number {
 		return this._id;
 	}
 

@@ -150,7 +150,7 @@ class Scene {
 	 *
 	 * @param id - The ID of the object to delete
 	 */
-	deleteObject(id: string) {
+	deleteObject(id: number) {
 		this._objectList = this._objectList.filter(
 			(obj: SceneObject) => obj.id !== id
 		);

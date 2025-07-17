@@ -1,4 +1,4 @@
-import { vec4, mat4, vec3 } from "gl-matrix";
+import { vec4, mat4, vec3, vec2 } from "gl-matrix";
 
 import {
 	VertexBuffer,
@@ -21,15 +21,23 @@ import { PointLight } from "./Light";
 class Renderer {
 	private _gl: WebGL2RenderingContext;
 	private _curAnimationRequestId: number;
+	public _frameBuffer: WebGLFramebuffer;
+	public _renderBuffer: WebGLRenderbuffer;
+	public _idTexture: WebGLTexture;
+	private _canvasSize: vec2;
 
 	/**
 	 * Creates a new Renderer
 	 *
 	 * @param gl - The WebGL2 context to render to
 	 */
-	constructor(gl: WebGL2RenderingContext) {
+	constructor(gl: WebGL2RenderingContext, size: vec2) {
 		this._gl = gl;
-		this._gl.cullFace(this._gl.BACK);
+		this._canvasSize = size;
+
+		this._frameBuffer = this._gl.createFramebuffer();
+		this._renderBuffer = this._gl.createRenderbuffer();
+		this._idTexture = this._gl.createTexture();
 	}
 
 	/**
@@ -38,6 +46,51 @@ class Renderer {
 	 * @param scene - The scene to preprocess
 	 */
 	preprocessScene(scene: Scene): void {
+		// set up framebuffer
+		this._gl.bindFramebuffer(this._gl.FRAMEBUFFER, this._frameBuffer);
+
+		// set up color buffer
+		this._gl.bindRenderbuffer(this._gl.RENDERBUFFER, this._renderBuffer);
+		this._gl.renderbufferStorage(
+			this._gl.RENDERBUFFER,
+			this._gl.RGBA4,
+			this._canvasSize[0],
+			this._canvasSize[1]
+		);
+		this._gl.framebufferRenderbuffer(
+			this._gl.FRAMEBUFFER,
+			this._gl.COLOR_ATTACHMENT0,
+			this._gl.RENDERBUFFER,
+			this._renderBuffer
+		);
+		this._gl.bindRenderbuffer(this._gl.RENDERBUFFER, null);
+
+		// set up id texture
+		this._gl.activeTexture(this._gl.TEXTURE0);
+		this._gl.bindTexture(this._gl.TEXTURE_2D, this._idTexture);
+		this._gl.texStorage2D(
+			this._gl.TEXTURE_2D,
+			1,
+			this._gl.R16I,
+			this._canvasSize[0],
+			this._canvasSize[1]
+		);
+		this._gl.framebufferTexture2D(
+			this._gl.FRAMEBUFFER,
+			this._gl.COLOR_ATTACHMENT1,
+			this._gl.TEXTURE_2D,
+			this._idTexture,
+			0
+		);
+
+		// attach color buffers to
+		this._gl.drawBuffers([
+			this._gl.COLOR_ATTACHMENT0,
+			this._gl.COLOR_ATTACHMENT1,
+		]);
+
+		this._gl.bindFramebuffer(this._gl.FRAMEBUFFER, null);
+
 		// creates all the buffers and shader programs for each object in the scene
 		scene.objectList.forEach((obj: SceneObject) => {
 			if (!obj.vertexBuffer.created) {
@@ -78,10 +131,13 @@ class Renderer {
 			});
 		});
 
+		this._gl.cullFace(this._gl.BACK);
 		this.setClearColor(scene.backgroundColor);
 		this.enable(this._gl.DEPTH_TEST);
 		this._gl.enable(this._gl.BLEND);
 		this._gl.blendFunc(this._gl.SRC_ALPHA, this._gl.ONE_MINUS_SRC_ALPHA);
+		this._gl.clear(this._gl.COLOR_BUFFER_BIT);
+		this._gl.clear(this._gl.DEPTH_BUFFER_BIT);
 	}
 
 	/**
@@ -90,7 +146,7 @@ class Renderer {
 	 * @param scene - The scene to draw
 	 */
 	drawScene(scene: Scene): void {
-		this.clear(this._gl.COLOR_BUFFER_BIT);
+		this.clear();
 
 		scene.updateFunction();
 
@@ -98,33 +154,42 @@ class Renderer {
 
 		const cam: Camera = scene.camera;
 
+		this._gl.bindRenderbuffer(this._gl.RENDERBUFFER, this._renderBuffer);
+
 		scene.objectList.forEach((obj: SceneObject) => {
 			this.bindSceneObject(obj);
 
 			const shaderProgram: ShaderProgram = obj.material.program;
+
+			this.setUniform1i(shaderProgram, "u_objectId", obj.id);
+
 			this.setUniform4Mat(
 				shaderProgram,
-				"perspective",
+				"u_perspective",
 				cam.perspectiveMatrix
 			);
 
-			this.setUniform4Mat(shaderProgram, "transform", obj.transform);
-			this.setUniform4Mat(shaderProgram, "view", cam.viewMatrix);
+			this.setUniform4Mat(shaderProgram, "u_transform", obj.transform);
+			this.setUniform4Mat(shaderProgram, "u_view", cam.viewMatrix);
 
 			// setup lights
 			this.setUniform1i(
 				shaderProgram,
-				"numLights",
+				"u_numLights",
 				scene.lightList.length
 			);
 			this.setUniform3f(
 				shaderProgram,
-				"ambientLight",
+				"u_ambientLight",
 				scene.ambientLight
 			);
 			scene.lightList.forEach((light: PointLight, i: number) => {
 				if (light instanceof PointLight) {
-					this.setPointLight(shaderProgram, `lightList[${i}]`, light);
+					this.setPointLight(
+						shaderProgram,
+						`u_lightList[${i}]`,
+						light
+					);
 				}
 			});
 
@@ -135,6 +200,36 @@ class Renderer {
 			);
 			this.unbindSceneObject();
 		});
+
+		this._gl.bindFramebuffer(this._gl.FRAMEBUFFER, this._frameBuffer);
+		this._gl.readBuffer(this._gl.COLOR_ATTACHMENT0);
+
+		const format = this._gl.getParameter(
+			this._gl.IMPLEMENTATION_COLOR_READ_FORMAT
+		);
+		const type = this._gl.getParameter(
+			this._gl.IMPLEMENTATION_COLOR_READ_TYPE
+		);
+
+		const data = new Float32Array(4);
+
+		this._gl.readPixels(
+			this._canvasSize[0] * 0.5,
+			this._canvasSize[1] * 0.45,
+			1,
+			1,
+			format,
+			type,
+			data
+		);
+
+		console.log(data);
+
+		this._gl.bindRenderbuffer(this._gl.RENDERBUFFER, null);
+	}
+
+	get context(): WebGL2RenderingContext {
+		return this._gl;
 	}
 
 	/**
@@ -511,12 +606,21 @@ class Renderer {
 	}
 
 	/**
-	 * WebGL helper function to set the clear bit. Usually set to COLOR_BUFFER_BIT
-	 *
-	 * @param flag - The GL value to set the clear value to
+	 * Clears the frame buffer to a blank screen of the clear color.
 	 */
-	clear(flag: number): void {
-		this._gl.clear(flag);
+	clear(): void {
+		this._gl.bindFramebuffer(this._gl.FRAMEBUFFER, this._frameBuffer);
+		this._gl.clearBufferfv(
+			this._gl.COLOR,
+			0,
+			new Float32Array([0, 0, 0, 0])
+		);
+		this._gl.clearBufferiv(
+			this._gl.COLOR,
+			1,
+			new Int16Array([-1, -1, -1, -1])
+		);
+		this._gl.bindFramebuffer(this._gl.FRAMEBUFFER, null);
 	}
 
 	/**

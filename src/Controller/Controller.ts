@@ -1,10 +1,11 @@
+import { App } from "../App/App";
 import { Scene } from "../Renderer/Scene";
 
 /**
  * Specifies all the user event callback functions that can fire when a user interact with the application.
  */
 interface Controller {
-	onClick?: (scene: Scene, event: MouseEvent) => void;
+	onClick?: (app: App, event: MouseEvent) => void;
 	onDrag?: (scene: Scene, event: MouseEvent) => void;
 	onMouseMove?: (scene: Scene, event: MouseEvent) => void;
 	onMouseDown?: (scene: Scene, event: MouseEvent) => void;

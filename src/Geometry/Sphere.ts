@@ -13,7 +13,7 @@ class Sphere implements ParameterizedGeometry {
 
 	/**
 	 * Creates a new sphere geometry
-	 * 
+	 *
 	 * @param radius - The distance from the set of points to the center
 	 */
 	constructor(radius: number) {
@@ -36,8 +36,8 @@ class Sphere implements ParameterizedGeometry {
 
 	/**
 	 * Generates a mesh object from the sphere
-	 * 
-	 * @param detailLevel - Dictates the number of vertices to generate on the sphere's surface. 
+	 *
+	 * @param detailLevel - Dictates the number of vertices to generate on the sphere's surface.
 	 * @returns - The mesh that represents the sphere geometry
 	 */
 	calculateMesh(detailLevel: number): Mesh {
@@ -80,13 +80,13 @@ class Sphere implements ParameterizedGeometry {
 
 		const vertexBufferLayout = new VertexBufferLayout([
 			{
-				name: "position",
+				name: "a_position",
 				size: 3,
 				type: VertexTypes.FLOAT,
 				normalized: false,
 			},
 			{
-				name: "normal",
+				name: "a_normal",
 				size: 3,
 				type: VertexTypes.FLOAT,
 				normalized: true,

@@ -6,6 +6,7 @@ import {
 	toSphericalCoord,
 	toCatesianCoord,
 } from "../Math/SphericalCoordinates";
+import { App } from "../App/App";
 
 /**
  * Use the mouse to drag the camera position around the origin while looking at the origin.
@@ -14,6 +15,61 @@ class OrbitalControls implements Controller {
 	private _mouseDownPoint: vec2 | undefined;
 	private _mouseDownCamPos: vec3 | undefined;
 	private _sensitivity = 1.3;
+
+	onClick(app: App, event: MouseEvent) {
+		if (event.target instanceof Element) {
+			const gl: WebGL2RenderingContext = app.renderer.context;
+			// const data = new Int16Array(1);
+			const data = new Float32Array(4);
+			const x = event.clientX;
+			const y = event.target.clientHeight - event.clientY;
+
+			gl.bindFramebuffer(gl.FRAMEBUFFER, app.renderer._frameBuffer);
+			gl.readBuffer(gl.COLOR_ATTACHMENT0);
+
+			const format = gl.getParameter(gl.IMPLEMENTATION_COLOR_READ_FORMAT);
+			const type = gl.getParameter(gl.IMPLEMENTATION_COLOR_READ_TYPE);
+
+			console.log(format, type);
+			app.render();
+			gl.readPixels(
+				event.clientX,
+				event.target.clientHeight - event.clientY,
+				1,
+				1,
+				format,
+				type,
+				data
+			);
+
+			// gl.readPixels(
+			// 	0,
+			// 	0,
+			// 	event.target.clientWidth,
+			// 	event.target.clientHeight,
+			// 	format,
+			// 	type,
+			// 	data
+			// );
+
+			console.log(
+				x / event.target.clientWidth,
+				y / event.target.clientHeight,
+				data
+			);
+			gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+		}
+
+		// const fb = gl.createFramebuffer();
+		// gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+		// gl.readBuffer(gl.NONE);
+		// const format = gl.getParameter(gl.IMPLEMENTATION_COLOR_READ_FORMAT);
+		// const type = gl.getParameter(gl.IMPLEMENTATION_COLOR_READ_TYPE);
+		// const data = new Float32Array(1);
+		// gl.readPixels(event.clientX, event.clientY, 1, 1, format, type, data);
+		// console.log(data);
+		//gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+	}
 
 	/**
 	 * Moves the camera coser or further away from the origin.

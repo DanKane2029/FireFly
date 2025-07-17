@@ -29,7 +29,7 @@ const shaderProgram: ShaderProgram = new ShaderProgram(
 const material: Material = new Material("Cube Material", shaderProgram, [
 	{
 		type: MaterialPropertyType.VEC4,
-		name: "color",
+		name: "u_color",
 		value: [0.86, 0.34, 0.56, 1],
 	},
 ]);

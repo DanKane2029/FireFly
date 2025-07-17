@@ -11,6 +11,7 @@ import { createSnowman } from "../SceneObjects/Snowman";
 import { PointLight } from "../Renderer/Light";
 import { sphere } from "../SceneObjects/Sphere";
 import { SceneObject } from "../Renderer/SceneObject";
+import { vec2 } from "gl-matrix";
 
 /**
  * A class that holds and organizes the higher level functionality and objects that the application needs to run
@@ -30,17 +31,35 @@ class App {
 	constructor(canvasElement: HTMLCanvasElement) {
 		this._canvasElement = canvasElement;
 		this._deltaTime = 0.001;
+		this._canvasElement.width = canvasElement.clientWidth;
+		this._canvasElement.height = canvasElement.clientHeight;
 		this._scene = new Scene(
 			this._deltaTime,
 			canvasElement.clientWidth,
 			canvasElement.clientHeight
 		);
 
-		this._renderer = new Renderer(canvasElement.getContext("webgl2"));
+		this._renderer = new Renderer(
+			canvasElement.getContext("webgl2", {
+				preserveDrawingBuffer: true,
+			}),
+			vec2.fromValues(
+				canvasElement.clientWidth,
+				canvasElement.clientHeight
+			)
+		);
 
 		window.addEventListener("resize", () => {
+			this._canvasElement.width = canvasElement.clientWidth;
+			this._canvasElement.height = canvasElement.clientHeight;
+
 			this._scene.camera.aspectRatio =
 				canvasElement.clientWidth / canvasElement.clientHeight;
+
+			this.renderer.setViewport(
+				canvasElement.clientWidth,
+				canvasElement.clientHeight
+			);
 		});
 
 		this._controller = new AddCubeController();
@@ -84,7 +103,7 @@ class App {
 
 		const onClickCallback = this._controller.onClick
 			? (event: MouseEvent) => {
-					this._controller.onClick(this._scene, event);
+					this._controller.onClick(this, event);
 			  }
 			: // eslint-disable-next-line @typescript-eslint/no-empty-function
 			  () => {};
@@ -159,7 +178,7 @@ class App {
 	 * Is called once before the application runs. Is used to do any logic needed before the app runs.
 	 */
 	setup(): void {
-		this.scene.backgroundColor = [0.05, 0.25, 0.05, 1.0];
+		this.scene.backgroundColor = [0.2, 0.2, 0.2, 1.0];
 		this.scene.ambientLight = [0.1, 0.1, 0.1];
 		this.setController(new OrbitalControls());
 		this.setControllerSwitches();

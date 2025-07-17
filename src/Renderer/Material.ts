@@ -1,6 +1,6 @@
 import { vec2, vec3, vec4, mat4 } from "gl-matrix";
-import { v4 as uuidv4 } from "uuid";
 
+import { IdManager } from "./IdCounter";
 import { ShaderProgram } from "./Shader";
 import { Texture } from "./Texture";
 
@@ -34,7 +34,7 @@ interface MaterialProperty {
  * An object that can be applied to a scene object that can change the way its surface renders
  */
 class Material {
-	private _id: string;
+	private _id: number;
 	private _name: string;
 	private _program: ShaderProgram;
 	private _properties: MaterialProperty[];
@@ -51,7 +51,7 @@ class Material {
 		shaderProgram: ShaderProgram,
 		properties: MaterialProperty[]
 	) {
-		this._id = uuidv4();
+		this._id = IdManager.getId();
 		this._name = name;
 		this._program = shaderProgram;
 		this._properties = properties;
@@ -60,7 +60,7 @@ class Material {
 	/**
 	 * Gets the unique id of the material
 	 */
-	get id(): string {
+	get id(): number {
 		return this._id;
 	}
 

@@ -3,6 +3,7 @@ import { Scene } from "../Renderer/Scene";
 import { SceneObject } from "../Renderer/SceneObject";
 import { cube } from "../SceneObjects/Cube";
 import { vec2, vec3 } from "gl-matrix";
+import { App } from "../App/App";
 
 /**
  * Adds a cube to the scene with the user clicks the mouse button.
@@ -39,11 +40,11 @@ class AddCubeController implements Controller {
 	 *
 	 * @param scene - The scene to add the cube to
 	 */
-	onClick(scene: Scene): void {
+	onClick(app: App): void {
 		const testCube = cube.clone();
 		testCube.translation = [0, 0, 0];
 		testCube.scale = [0.05, 0.05, 0.05];
-		scene.addObject(testCube);
+		app.scene.addObject(testCube);
 	}
 
 	/**
