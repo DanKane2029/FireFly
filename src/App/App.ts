@@ -39,8 +39,12 @@ class App {
 			canvasElement.clientHeight
 		);
 
+		// antialias must be false: the default framebuffer would otherwise be
+		// multisampled, and blitFramebuffer (used to copy the rendered image to
+		// the canvas) cannot write into a multisampled framebuffer.
 		const gl = canvasElement.getContext("webgl2", {
 			preserveDrawingBuffer: true,
+			antialias: false,
 		});
 		if (gl === null) {
 			throw new Error("WebGL2 is not supported in this browser.");
