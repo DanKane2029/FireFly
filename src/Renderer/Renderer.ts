@@ -33,7 +33,9 @@ class Renderer {
 	public _frameBuffer: WebGLFramebuffer;
 	public _renderBuffer: WebGLRenderbuffer;
 	public _idTexture: WebGLTexture;
+	private _depthBuffer: WebGLRenderbuffer;
 	private _canvasSize: vec2;
+	private _clearColor: vec4;
 
 	/**
 	 * Creates a new Renderer
@@ -43,6 +45,7 @@ class Renderer {
 	constructor(gl: WebGL2RenderingContext, size: vec2) {
 		this._gl = gl;
 		this._canvasSize = size;
+		this._clearColor = [0, 0, 0, 1];
 
 		this._frameBuffer = this.assertCreated(
 			this._gl.createFramebuffer(),
@@ -55,6 +58,10 @@ class Renderer {
 		this._idTexture = this.assertCreated(
 			this._gl.createTexture(),
 			"id texture"
+		);
+		this._depthBuffer = this.assertCreated(
+			this._gl.createRenderbuffer(),
+			"depth renderbuffer"
 		);
 	}
 
@@ -127,11 +134,37 @@ class Renderer {
 			0
 		);
 
+		// depth buffer so depth testing works while rendering into this
+		// framebuffer (the default framebuffer's depth buffer is not used here)
+		this._gl.bindRenderbuffer(this._gl.RENDERBUFFER, this._depthBuffer);
+		this._gl.renderbufferStorage(
+			this._gl.RENDERBUFFER,
+			this._gl.DEPTH_COMPONENT16,
+			this._canvasSize[0],
+			this._canvasSize[1]
+		);
+		this._gl.framebufferRenderbuffer(
+			this._gl.FRAMEBUFFER,
+			this._gl.DEPTH_ATTACHMENT,
+			this._gl.RENDERBUFFER,
+			this._depthBuffer
+		);
+		this._gl.bindRenderbuffer(this._gl.RENDERBUFFER, null);
+
 		// draw to both the color and id attachments each frame
 		this._gl.drawBuffers([
 			this._gl.COLOR_ATTACHMENT0,
 			this._gl.COLOR_ATTACHMENT1,
 		]);
+
+		const status = this._gl.checkFramebufferStatus(this._gl.FRAMEBUFFER);
+		if (status !== this._gl.FRAMEBUFFER_COMPLETE) {
+			console.warn(
+				`Render framebuffer is incomplete (status 0x${status.toString(
+					16
+				)}); rendering and picking may not work.`
+			);
+		}
 
 		this._gl.bindFramebuffer(this._gl.FRAMEBUFFER, null);
 
@@ -204,7 +237,9 @@ class Renderer {
 
 		const cam: Camera = scene.camera;
 
-		this._gl.bindRenderbuffer(this._gl.RENDERBUFFER, this._renderBuffer);
+		// Render into the offscreen framebuffer so each object writes both its
+		// shaded color (attachment 0) and its id (attachment 1) in one pass.
+		this._gl.bindFramebuffer(this._gl.FRAMEBUFFER, this._frameBuffer);
 
 		scene.objectList.forEach((obj: SceneObject) => {
 			this.bindSceneObject(obj);
@@ -261,7 +296,38 @@ class Renderer {
 			this.unbindSceneObject();
 		});
 
-		this._gl.bindRenderbuffer(this._gl.RENDERBUFFER, null);
+		// Copy the shaded color image onto the visible canvas. The id-texture
+		// (attachment 1) stays on the GPU for the Picker to read on demand.
+		this.blitColorToCanvas();
+
+		this._gl.bindFramebuffer(this._gl.FRAMEBUFFER, null);
+	}
+
+	/**
+	 * Copies the offscreen framebuffer's color image (COLOR_ATTACHMENT0) onto
+	 * the default framebuffer, i.e. the visible canvas. Only the color image is
+	 * copied - the id-texture is left in the framebuffer for picking.
+	 */
+	private blitColorToCanvas(): void {
+		const width = this._canvasSize[0];
+		const height = this._canvasSize[1];
+
+		this._gl.bindFramebuffer(this._gl.READ_FRAMEBUFFER, this._frameBuffer);
+		this._gl.readBuffer(this._gl.COLOR_ATTACHMENT0);
+		this._gl.bindFramebuffer(this._gl.DRAW_FRAMEBUFFER, null);
+
+		this._gl.blitFramebuffer(
+			0,
+			0,
+			width,
+			height,
+			0,
+			0,
+			width,
+			height,
+			this._gl.COLOR_BUFFER_BIT,
+			this._gl.NEAREST
+		);
 	}
 
 	get context(): WebGL2RenderingContext {
@@ -685,38 +751,34 @@ class Renderer {
 	 * @param color - The clear color value
 	 */
 	setClearColor(color: vec4): void {
+		this._clearColor = color;
 		this._gl.clearColor(color[0], color[1], color[2], color[3]);
 	}
 
 	/**
-	 * Clears both render targets at the start of a frame.
+	 * Clears the offscreen framebuffer at the start of a frame:
+	 * - attachment 0 (the color image) to the background color,
+	 * - attachment 1 (the picking id-texture) to -1 = "no object here",
+	 * - the depth buffer so stale depth values don't block new fragments.
 	 *
-	 * First the offscreen framebuffer's attachments are reset: the color image
-	 * (attachment 0) and the picking id-texture (attachment 1, cleared to -1 =
-	 * "no object here"). Then the visible canvas (the default framebuffer) is
-	 * cleared to the background color along with its depth buffer.
-	 *
-	 * The canvas clear is essential: the WebGL context is created with
-	 * preserveDrawingBuffer, so the browser does NOT clear it automatically
-	 * between frames. Without this, each frame would draw on top of the last
-	 * (smearing), and stale depth values would block new fragments.
+	 * The visible canvas does not need a separate clear: every frame the whole
+	 * color image is blitted onto it (see blitColorToCanvas), fully overwriting
+	 * the previous frame.
 	 */
 	clear(): void {
 		this._gl.bindFramebuffer(this._gl.FRAMEBUFFER, this._frameBuffer);
 		this._gl.clearBufferfv(
 			this._gl.COLOR,
 			0,
-			new Float32Array([0, 0, 0, 0])
+			new Float32Array(this._clearColor)
 		);
 		this._gl.clearBufferiv(
 			this._gl.COLOR,
 			1,
 			new Int16Array([-1, -1, -1, -1])
 		);
+		this._gl.clear(this._gl.DEPTH_BUFFER_BIT);
 		this._gl.bindFramebuffer(this._gl.FRAMEBUFFER, null);
-
-		// Clear the visible canvas (default framebuffer) every frame.
-		this._gl.clear(this._gl.COLOR_BUFFER_BIT | this._gl.DEPTH_BUFFER_BIT);
 	}
 
 	/**
