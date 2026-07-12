@@ -243,6 +243,22 @@ class Renderer {
 	}
 
 	/**
+	 * The offscreen framebuffer the scene is rendered into. Its second color
+	 * attachment holds the object-id texture the Picker reads.
+	 */
+	get frameBuffer(): WebGLFramebuffer {
+		return this._frameBuffer;
+	}
+
+	/**
+	 * The pixel dimensions of the framebuffer's attachments (including the
+	 * id-texture the Picker samples).
+	 */
+	get canvasSize(): vec2 {
+		return this._canvasSize;
+	}
+
+	/**
 	 * Draws the binded vertex buffer using the binded index buffer and shader program
 	 *
 	 * @param mode - The drawing mode in WebGL (usually gl.TRIANGLES)

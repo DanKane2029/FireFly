@@ -1,10 +1,12 @@
 import { Scene } from "../Renderer/Scene";
 import { Renderer } from "../Renderer/Renderer";
+import { Picker } from "../Renderer/Picker";
 import { Controller } from "../Controller/Controller";
 
 // controllers
 import { AddCubeController } from "../Controller/AddCube";
 import { OrbitalControls } from "../Controller/OrbitalCamera";
+import { SelectObjectController } from "../Controller/SelectObject";
 
 import { createSnowman } from "../SceneObjects/Snowman";
 import { PointLight } from "../Renderer/Light";
@@ -17,6 +19,7 @@ class App {
 	private _deltaTime: number;
 	private _scene: Scene;
 	private _renderer: Renderer;
+	private _picker: Picker;
 	private _canvasElement: HTMLCanvasElement;
 	private _controller: Controller;
 
@@ -44,6 +47,12 @@ class App {
 				canvasElement.clientWidth,
 				canvasElement.clientHeight
 			)
+		);
+
+		this._picker = new Picker(
+			this._renderer.context,
+			this._renderer.frameBuffer,
+			this._renderer.canvasSize
 		);
 
 		window.addEventListener("resize", () => {
@@ -88,6 +97,13 @@ class App {
 	 */
 	get renderer(): Renderer {
 		return this._renderer;
+	}
+
+	/**
+	 * Gets the picker the app uses to resolve clicks to scene objects
+	 */
+	get picker(): Picker {
+		return this._picker;
 	}
 
 	/**
@@ -151,6 +167,7 @@ class App {
 	 * Sets the app's controller that specifies the user input. The user can switch between controllers with specific key presses.
 	 * o - Switches to orbital controlls
 	 * c - Switches to Add Cube controlls
+	 * s - Switches to Select Object controls
 	 */
 	setControllerSwitches(): void {
 		this._canvasElement.addEventListener(
@@ -165,6 +182,11 @@ class App {
 					case "o":
 						console.log("setting controls to Orbital");
 						this.setController(new OrbitalControls());
+						break;
+
+					case "s":
+						console.log("setting controls to Select Object");
+						this.setController(new SelectObjectController());
 						break;
 				}
 			}).bind(this)
