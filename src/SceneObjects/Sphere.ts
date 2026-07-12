@@ -26,7 +26,7 @@ const shaderProgram: ShaderProgram = new ShaderProgram(
 	fragmentShader
 );
 
-const material: Material = new Material("Cube Material", shaderProgram, [
+const material: Material = new Material("Sphere Material", shaderProgram, [
 	{
 		type: MaterialPropertyType.VEC4,
 		name: "u_color",

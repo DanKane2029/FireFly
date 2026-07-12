@@ -1,5 +1,10 @@
 /**
- * A Buffer that holds vertex data (position, color, normal vector, ect.) that is accessable to the renderer.
+ * Holds the per-vertex data for a mesh (positions, normals, etc.) as a single
+ * flat Float32Array, ready to upload to the GPU. The data is *interleaved* -
+ * one vertex's attributes sit together in memory - and the accompanying
+ * VertexBufferLayout describes how to slice each vertex back into attributes.
+ * The `created` flag tracks whether the data has been uploaded to a WebGL
+ * buffer yet, so the renderer only uploads it once.
  */
 class VertexBuffer {
 	private _vertices: Float32Array;
@@ -20,14 +25,14 @@ class VertexBuffer {
 	}
 
 	/**
-	 * Gets the vertiex data from the vertex buffer.
+	 * Gets the vertex data from the vertex buffer.
 	 */
 	get vertices(): Float32Array {
 		return this._vertices;
 	}
 
 	/**
-	 * Sets the vertiex data from the vertex buffer.
+	 * Sets the vertex data from the vertex buffer.
 	 */
 	set vertices(vertices: Float32Array) {
 		this._vertices = vertices;
@@ -77,7 +82,9 @@ class VertexBuffer {
 }
 
 /**
- * A buffer that holds index information about a vertex buffer used to describe the faces of a geometry
+ * Holds the face indices for a mesh: triples of indices into the VertexBuffer,
+ * each triple describing one triangle. Indexing lets vertices shared by
+ * several triangles be stored once instead of repeated per triangle.
  */
 class IndexBuffer {
 	private _indices: Uint32Array;
@@ -165,7 +172,10 @@ interface VertexLayout {
 }
 
 /**
- * Describes what kind of data is in a vertex buffer object
+ * Describes how the flat float array in a VertexBuffer is divided into named
+ * attributes: for each attribute, its shader name, how many floats it spans,
+ * its type, and whether it should be normalized. The renderer uses this to
+ * wire the buffer up to the matching shader inputs (see setVertexAttributes).
  */
 class VertexBufferLayout {
 	private _layout: VertexLayout[];

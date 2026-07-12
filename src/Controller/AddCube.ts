@@ -1,12 +1,11 @@
 import { Controller } from "./Controller";
-import { Scene } from "../Renderer/Scene";
 import { SceneObject } from "../Renderer/SceneObject";
 import { cube } from "../SceneObjects/Cube";
 import { vec2 } from "gl-matrix";
 import { App } from "../App/App";
 
 /**
- * Adds a cube to the scene with the user clicks the mouse button.
+ * Adds a cube to the scene when the user clicks the mouse button.
  */
 class AddCubeController implements Controller {
 	private _mouseDownPoint: vec2 | undefined;
@@ -15,10 +14,10 @@ class AddCubeController implements Controller {
 	/**
 	 * Adds initial cube to scene and initializes a reference to it for future changes
 	 *
-	 * @param scene - The scene to add the cube to
+	 * @param app - The application to add the cube to
 	 * @param event - The mouse event fired when the mouse is pressed down
 	 */
-	onMouseDown(scene: Scene, event: MouseEvent): void {
+	onMouseDown(app: App, event: MouseEvent): void {
 		if (event.target instanceof Element) {
 			const x = (event.clientX / event.target.clientWidth - 0.5) * 2;
 			const y = (1 - event.clientY / event.target.clientHeight - 0.5) * 2;
@@ -28,14 +27,14 @@ class AddCubeController implements Controller {
 		if (!this._cube) {
 			this._cube = cube.clone();
 			this._cube.scale = [0.1, 0.1, 0.1];
-			scene.addObject(this._cube);
+			app.scene.addObject(this._cube);
 		}
 	}
 
 	/**
 	 * Adds a cube to the center of the scene
 	 *
-	 * @param scene - The scene to add the cube to
+	 * @param app - The application to add the cube to
 	 */
 	onClick(app: App): void {
 		const testCube = cube.clone();
@@ -55,10 +54,10 @@ class AddCubeController implements Controller {
 	/**
 	 * If the mouse is already pressed down it scales the size of the added cube based on how far you move the mouse.
 	 *
-	 * @param scene - The scene to add the cube to
-	 * @param event - THe mouse event fired when the mouse is moved
+	 * @param app - The application being interacted with
+	 * @param event - The mouse event fired when the mouse is moved
 	 */
-	onMouseMove(scene: Scene, event: MouseEvent): void {
+	onMouseMove(app: App, event: MouseEvent): void {
 		if (this._mouseDownPoint && event.target instanceof Element) {
 			// get mouse position
 			const x = (event.clientX / event.target.clientWidth - 0.5) * 2;

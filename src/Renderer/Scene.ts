@@ -5,7 +5,11 @@ import { Camera } from "./Camera";
 import { PointLight } from "./Light";
 
 /**
- * Organizes the camera and objects that will be rendered to the screen
+ * The world to be rendered: the list of objects, the lights that illuminate
+ * them, the ambient light and background color, and the camera that views it
+ * all. The Scene also owns the simulation clock (time / deltaTime) and drives
+ * every object's and the camera's per-frame update function. The Renderer
+ * reads a Scene each frame; it never mutates it.
  */
 class Scene {
 	private _objectList: SceneObject[];
@@ -114,7 +118,7 @@ class Scene {
 	}
 
 	/**
-	 * Sets the detla time value in the scene
+	 * Sets the delta time value in the scene
 	 */
 	set deltaTime(deltaTime: number) {
 		this._deltaTime = deltaTime;
@@ -146,7 +150,7 @@ class Scene {
 	}
 
 	/**
-	 * Delets an object in the scene
+	 * Deletes an object in the scene
 	 *
 	 * @param id - The ID of the object to delete
 	 */
@@ -164,7 +168,7 @@ class Scene {
 	}
 
 	/**
-	 * Runs the camera's update function and the update funtion of every object in the scene
+	 * Runs the camera's update function and the update function of every object in the scene
 	 */
 	updateFunction() {
 		if (this.camera && this.camera.updateFunction) {

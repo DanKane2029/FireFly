@@ -30,10 +30,10 @@ class Mesh {
 	private _vertexLayout: VertexBufferLayout;
 
 	/**
-	 * Creates a mesh object with list of vertices and index array to desrcibe the geometry of an object.
+	 * Creates a mesh object with list of vertices and index array to describe the geometry of an object.
 	 *
 	 * @param vertexList - The list of vertices of the mesh containing position, normal, texture coordinates and other data.
-	 * @param indicesList - List of lists describing the connectivity of the mesh. Each list in the list conatins integers
+	 * @param indicesList - List of lists describing the connectivity of the mesh. Each list in the list contains integers
 	 * 						that are indices into the vertex list and describe 1 face.
 	 * @param vertexBufferLayout - The layout that describes the data in each vertex.
 	 */

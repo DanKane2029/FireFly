@@ -6,9 +6,10 @@ import { ParameterizedGeometry } from "./ParameterizedGeometry";
 import { Vertex } from "./Vertex";
 
 /**
- * The set of points equadistant to a single point.
+ * A sphere: the set of points equidistant from a center. Tessellated as a UV
+ * sphere - a grid of latitude rings and longitude columns.
  */
-class Sphere implements ParameterizedGeometry {
+class Sphere extends ParameterizedGeometry {
 	private _radius: number;
 
 	/**
@@ -17,6 +18,7 @@ class Sphere implements ParameterizedGeometry {
 	 * @param radius - The distance from the set of points to the center
 	 */
 	constructor(radius: number) {
+		super();
 		this._radius = radius;
 	}
 
@@ -37,7 +39,8 @@ class Sphere implements ParameterizedGeometry {
 	/**
 	 * Generates a mesh object from the sphere
 	 *
-	 * @param detailLevel - Dictates the number of vertices to generate on the sphere's surface.
+	 * @param detailLevel - Number of latitude bands / longitude columns; higher
+	 * values give a rounder sphere.
 	 * @returns - The mesh that represents the sphere geometry
 	 */
 	calculateMesh(detailLevel: number): Mesh {

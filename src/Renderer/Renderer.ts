@@ -16,7 +16,17 @@ import { Camera } from "./Camera";
 import { PointLight } from "./Light";
 
 /**
- * Renders a scene to a WebGL canvas
+ * Renders a scene to a WebGL canvas.
+ *
+ * The Renderer owns the WebGL2 context and translates the engine's high-level
+ * objects (scenes, meshes, materials) into GPU calls. The overall flow is:
+ *
+ *   1. initScene()          - one-time framebuffer + global GL state setup.
+ *   2. ensureSceneResources() - lazily upload buffers/shaders/textures.
+ *   3. drawScene()          - per frame: set uniforms and issue draw calls.
+ *
+ * Rendering targets an offscreen framebuffer with two color attachments: the
+ * visible image and an integer id-texture used for GPU object picking.
  */
 class Renderer {
 	private _gl: WebGL2RenderingContext;
@@ -41,11 +51,21 @@ class Renderer {
 	}
 
 	/**
-	 * Creates all the buffers, shader programs, and textures for the objects in the scene
+	 * One-time setup for a scene. Configures the offscreen framebuffer used for
+	 * rendering and sets the global GL state that never changes frame to frame.
 	 *
-	 * @param scene - The scene to preprocess
+	 * The framebuffer has two color attachments (multiple render targets):
+	 * - COLOR_ATTACHMENT0: an RGBA renderbuffer holding the visible image.
+	 * - COLOR_ATTACHMENT1: an R16I texture where each pixel stores the id of the
+	 *   object drawn there. Reading this texture back on click is how GPU
+	 *   picking selects an object (see Picker).
+	 *
+	 * Call once after the scene's objects and background color are set, before
+	 * the first draw.
+	 *
+	 * @param scene - The scene whose global state (e.g. clear color) to apply
 	 */
-	preprocessScene(scene: Scene): void {
+	initScene(scene: Scene): void {
 		// set up framebuffer
 		this._gl.bindFramebuffer(this._gl.FRAMEBUFFER, this._frameBuffer);
 
@@ -65,7 +85,7 @@ class Renderer {
 		);
 		this._gl.bindRenderbuffer(this._gl.RENDERBUFFER, null);
 
-		// set up id texture
+		// set up id texture (COLOR_ATTACHMENT1) for GPU picking
 		this._gl.activeTexture(this._gl.TEXTURE0);
 		this._gl.bindTexture(this._gl.TEXTURE_2D, this._idTexture);
 		this._gl.texStorage2D(
@@ -83,7 +103,7 @@ class Renderer {
 			0
 		);
 
-		// attach color buffers to
+		// draw to both the color and id attachments each frame
 		this._gl.drawBuffers([
 			this._gl.COLOR_ATTACHMENT0,
 			this._gl.COLOR_ATTACHMENT1,
@@ -91,7 +111,23 @@ class Renderer {
 
 		this._gl.bindFramebuffer(this._gl.FRAMEBUFFER, null);
 
-		// creates all the buffers and shader programs for each object in the scene
+		// global GL state that is constant for the lifetime of the scene
+		this._gl.cullFace(this._gl.BACK);
+		this.setClearColor(scene.backgroundColor);
+		this.enable(this._gl.DEPTH_TEST);
+		this._gl.enable(this._gl.BLEND);
+		this._gl.blendFunc(this._gl.SRC_ALPHA, this._gl.ONE_MINUS_SRC_ALPHA);
+	}
+
+	/**
+	 * Lazily uploads GPU resources (vertex/index buffers, shader programs,
+	 * textures) for any object that has not been uploaded yet. Objects track
+	 * this with `created` flags, so this is cheap to call every frame and
+	 * automatically picks up objects added at runtime.
+	 *
+	 * @param scene - The scene whose objects to upload
+	 */
+	ensureSceneResources(scene: Scene): void {
 		scene.objectList.forEach((obj: SceneObject) => {
 			if (!obj.vertexBuffer.created) {
 				this.createVertexBuffer(obj.vertexBuffer);
@@ -130,14 +166,6 @@ class Renderer {
 				}
 			});
 		});
-
-		this._gl.cullFace(this._gl.BACK);
-		this.setClearColor(scene.backgroundColor);
-		this.enable(this._gl.DEPTH_TEST);
-		this._gl.enable(this._gl.BLEND);
-		this._gl.blendFunc(this._gl.SRC_ALPHA, this._gl.ONE_MINUS_SRC_ALPHA);
-		this._gl.clear(this._gl.COLOR_BUFFER_BIT);
-		this._gl.clear(this._gl.DEPTH_BUFFER_BIT);
 	}
 
 	/**
@@ -148,7 +176,7 @@ class Renderer {
 	drawScene(scene: Scene): void {
 		this.clear();
 
-		this.preprocessScene(scene);
+		this.ensureSceneResources(scene);
 
 		const cam: Camera = scene.camera;
 

@@ -26,13 +26,18 @@ class Box extends ParameterizedGeometry {
 	}
 
 	/**
-	 * Generates a mesh object from the box geometry
+	 * Generates a mesh object from the box geometry. A box has 24 vertices -
+	 * four per face - so that each face can carry its own flat normal (shared
+	 * corner vertices could not, since a corner belongs to three faces).
+	 *
+	 * The box's shape is fully determined by its dimensions, so it takes no
+	 * detailLevel parameter (unlike curved geometry such as Sphere).
 	 *
 	 * @returns - The mesh object generated from the box dimensions
 	 */
 	calculateMesh(): Mesh {
 		const halfWidth: number = this._width / 2;
-		const halfHieght: number = this._height / 2;
+		const halfHeight: number = this._height / 2;
 		const halfDepth: number = this._depth / 2;
 
 		const vertexBufferLayout = new VertexBufferLayout([
@@ -53,109 +58,109 @@ class Box extends ParameterizedGeometry {
 		const vertexList: Vertex[] = [
 			// back face
 			{
-				position: [-halfWidth, halfHieght, -halfDepth],
+				position: [-halfWidth, halfHeight, -halfDepth],
 				normal: [0, 0, -1],
 			},
 			{
-				position: [-halfWidth, -halfHieght, -halfDepth],
+				position: [-halfWidth, -halfHeight, -halfDepth],
 				normal: [0, 0, -1],
 			},
 			{
-				position: [halfWidth, -halfHieght, -halfDepth],
+				position: [halfWidth, -halfHeight, -halfDepth],
 				normal: [0, 0, -1],
 			},
 			{
-				position: [halfWidth, halfHieght, -halfDepth],
+				position: [halfWidth, halfHeight, -halfDepth],
 				normal: [0, 0, -1],
 			},
 
 			// top face
 			{
-				position: [-halfWidth, halfHieght, -halfDepth],
+				position: [-halfWidth, halfHeight, -halfDepth],
 				normal: [0, 1, 0],
 			},
 			{
-				position: [-halfWidth, halfHieght, halfDepth],
+				position: [-halfWidth, halfHeight, halfDepth],
 				normal: [0, 1, 0],
 			},
 			{
-				position: [halfWidth, halfHieght, halfDepth],
+				position: [halfWidth, halfHeight, halfDepth],
 				normal: [0, 1, 0],
 			},
 			{
-				position: [halfWidth, halfHieght, -halfDepth],
+				position: [halfWidth, halfHeight, -halfDepth],
 				normal: [0, 1, 0],
 			},
 
 			// front face
 			{
-				position: [-halfWidth, halfHieght, halfDepth],
+				position: [-halfWidth, halfHeight, halfDepth],
 				normal: [0, 0, 1],
 			},
 			{
-				position: [-halfWidth, -halfHieght, halfDepth],
+				position: [-halfWidth, -halfHeight, halfDepth],
 				normal: [0, 0, 1],
 			},
 			{
-				position: [halfWidth, -halfHieght, halfDepth],
+				position: [halfWidth, -halfHeight, halfDepth],
 				normal: [0, 0, 1],
 			},
 			{
-				position: [halfWidth, halfHieght, halfDepth],
+				position: [halfWidth, halfHeight, halfDepth],
 				normal: [0, 0, 1],
 			},
 
 			// bottom face
 			{
-				position: [-halfWidth, -halfHieght, -halfDepth],
+				position: [-halfWidth, -halfHeight, -halfDepth],
 				normal: [0, -1, 0],
 			},
 			{
-				position: [-halfWidth, -halfHieght, halfDepth],
+				position: [-halfWidth, -halfHeight, halfDepth],
 				normal: [0, -1, 0],
 			},
 			{
-				position: [halfWidth, -halfHieght, halfDepth],
+				position: [halfWidth, -halfHeight, halfDepth],
 				normal: [0, -1, 0],
 			},
 			{
-				position: [halfWidth, -halfHieght, -halfDepth],
+				position: [halfWidth, -halfHeight, -halfDepth],
 				normal: [0, -1, 0],
 			},
 
 			// right face
 			{
-				position: [halfWidth, halfHieght, halfDepth],
+				position: [halfWidth, halfHeight, halfDepth],
 				normal: [1, 0, 0],
 			},
 			{
-				position: [halfWidth, -halfHieght, halfDepth],
+				position: [halfWidth, -halfHeight, halfDepth],
 				normal: [1, 0, 0],
 			},
 			{
-				position: [halfWidth, -halfHieght, -halfDepth],
+				position: [halfWidth, -halfHeight, -halfDepth],
 				normal: [1, 0, 0],
 			},
 			{
-				position: [halfWidth, halfHieght, -halfDepth],
+				position: [halfWidth, halfHeight, -halfDepth],
 				normal: [1, 0, 0],
 			},
 
 			// left face
 			{
-				position: [-halfWidth, halfHieght, -halfDepth],
+				position: [-halfWidth, halfHeight, -halfDepth],
 				normal: [-1, 0, 0],
 			},
 			{
-				position: [-halfWidth, -halfHieght, -halfDepth],
+				position: [-halfWidth, -halfHeight, -halfDepth],
 				normal: [-1, 0, 0],
 			},
 			{
-				position: [-halfWidth, -halfHieght, halfDepth],
+				position: [-halfWidth, -halfHeight, halfDepth],
 				normal: [-1, 0, 0],
 			},
 			{
-				position: [-halfWidth, halfHieght, halfDepth],
+				position: [-halfWidth, halfHeight, halfDepth],
 				normal: [-1, 0, 0],
 			},
 		];

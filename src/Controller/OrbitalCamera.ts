@@ -1,4 +1,4 @@
-import { Scene } from "../Renderer/Scene";
+import { App } from "../App/App";
 import { Camera } from "../Renderer/Camera";
 import { Controller } from "./Controller";
 import { vec3, vec2 } from "gl-matrix";
@@ -8,7 +8,10 @@ import {
 } from "../Math/SphericalCoordinates";
 
 /**
- * Use the mouse to drag the camera position around the origin while looking at the origin.
+ * Orbital camera controls: drag the mouse to rotate the camera around the
+ * origin (keeping it aimed at the origin), and scroll to move closer or
+ * further away. Positions are tracked in spherical coordinates so the camera
+ * stays on a sphere around the target.
  */
 class OrbitalControls implements Controller {
 	private _mouseDownPoint: vec2 | undefined;
@@ -16,36 +19,36 @@ class OrbitalControls implements Controller {
 	private _sensitivity = 1.3;
 
 	/**
-	 * Moves the camera coser or further away from the origin.
+	 * Moves the camera closer to or further from the origin.
 	 *
-	 * @param scene - The scene being viewed
+	 * @param app - The application being interacted with
 	 * @param event - The wheel event being fired
 	 */
-	onWheel(scene: Scene, event: WheelEvent): void {
-		const camPos = scene.camera.translation;
-		const camSphericalCoord = toSphericalCoord(camPos);
+	onWheel(app: App, event: WheelEvent): void {
+		const camera = app.scene.camera;
+		const camSphericalCoord = toSphericalCoord(camera.translation);
 
 		const zoomDir = event.deltaY < 0 ? -1 : 1;
 		const zoomValue = 0.075;
 
 		camSphericalCoord.radius += zoomDir * zoomValue;
 		camSphericalCoord.radius = Math.max(0.001, camSphericalCoord.radius);
-		scene.camera.translation = toCatesianCoord(camSphericalCoord);
+		camera.translation = toCatesianCoord(camSphericalCoord);
 	}
 
 	/**
 	 * Initializes rotating the camera
 	 *
-	 * @param scene - The scene being viewed
+	 * @param app - The application being interacted with
 	 * @param event - The mouse event being fired
 	 */
-	onMouseDown(scene: Scene, event: MouseEvent): void {
+	onMouseDown(app: App, event: MouseEvent): void {
 		if (event.target instanceof Element) {
 			const x = (event.clientX / event.target.clientWidth - 0.5) * 2;
 			const y = (1 - event.clientY / event.target.clientHeight - 0.5) * 2;
 			this._mouseDownPoint = vec2.fromValues(x, y);
 		}
-		this._mouseDownCamPos = scene.camera.translation;
+		this._mouseDownCamPos = app.scene.camera.translation;
 	}
 
 	/**
@@ -59,17 +62,17 @@ class OrbitalControls implements Controller {
 	/**
 	 * If the mouse button is being pressed rotate the camera around the origin based on how far the mouse has been dragged.
 	 *
-	 * @param scene - The scene being viewed
+	 * @param app - The application being interacted with
 	 * @param event - The mouse event being fired
 	 */
-	onMouseMove(scene: Scene, event: MouseEvent): void {
+	onMouseMove(app: App, event: MouseEvent): void {
 		if (this._mouseDownPoint && event.target instanceof Element) {
 			// get mouse position
 			const x = (event.clientX / event.target.clientWidth - 0.5) * 2;
 			const y = (1 - event.clientY / event.target.clientHeight - 0.5) * 2;
 			const curMousePos = vec2.fromValues(x, y);
 
-			const cam: Camera = scene.camera;
+			const cam: Camera = app.scene.camera;
 
 			// get orthogonal vectors to camera direction
 			const dir = vec3.create();

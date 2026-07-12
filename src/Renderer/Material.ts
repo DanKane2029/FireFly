@@ -31,7 +31,11 @@ interface MaterialProperty {
 }
 
 /**
- * An object that can be applied to a scene object that can change the way its surface renders
+ * Describes how a surface looks: a shader program plus the set of named
+ * properties (uniforms) that feed it - a color, textures, and so on. Two
+ * objects can share the same shader program but supply different property
+ * values (e.g. different colors) through their own Material. The renderer
+ * reads these properties and uploads them as uniforms before drawing.
  */
 class Material {
 	private _id: number;

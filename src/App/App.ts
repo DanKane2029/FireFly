@@ -6,11 +6,8 @@ import { Controller } from "../Controller/Controller";
 import { AddCubeController } from "../Controller/AddCube";
 import { OrbitalControls } from "../Controller/OrbitalCamera";
 
-import { cube } from "../SceneObjects/Cube";
 import { createSnowman } from "../SceneObjects/Snowman";
 import { PointLight } from "../Renderer/Light";
-import { sphere } from "../SceneObjects/Sphere";
-import { SceneObject } from "../Renderer/SceneObject";
 import { vec2 } from "gl-matrix";
 
 /**
@@ -111,7 +108,7 @@ class App {
 
 		const onDragCallback = this._controller.onDrag
 			? (event: MouseEvent) => {
-					this._controller.onDrag(this._scene, event);
+					this._controller.onDrag(this, event);
 			  }
 			: // eslint-disable-next-line @typescript-eslint/no-empty-function
 			  () => {};
@@ -119,7 +116,7 @@ class App {
 
 		const onMouseMoveCallback = this._controller.onMouseMove
 			? (event: MouseEvent) => {
-					this._controller.onMouseMove(this._scene, event);
+					this._controller.onMouseMove(this, event);
 			  }
 			: // eslint-disable-next-line @typescript-eslint/no-empty-function
 			  () => {};
@@ -127,7 +124,7 @@ class App {
 
 		const onMouseDownCallback = this._controller.onMouseDown
 			? (event: MouseEvent) => {
-					this._controller.onMouseDown(this._scene, event);
+					this._controller.onMouseDown(this, event);
 			  }
 			: // eslint-disable-next-line @typescript-eslint/no-empty-function
 			  () => {};
@@ -135,7 +132,7 @@ class App {
 
 		const onMouseUpCallback = this._controller.onMouseUp
 			? (event: MouseEvent) => {
-					this._controller.onMouseUp(this._scene, event);
+					this._controller.onMouseUp(this, event);
 			  }
 			: // eslint-disable-next-line @typescript-eslint/no-empty-function
 			  () => {};
@@ -143,7 +140,7 @@ class App {
 
 		const onWheelCallback = this._controller.onWheel
 			? (event: WheelEvent) => {
-					this._controller.onWheel(this._scene, event);
+					this._controller.onWheel(this, event);
 			  }
 			: // eslint-disable-next-line @typescript-eslint/no-empty-function
 			  () => {};
@@ -191,6 +188,10 @@ class App {
 
 		const snowman = createSnowman();
 		snowman.forEach((obj) => this.scene.addObject(obj));
+
+		// One-time framebuffer + GL state setup, now that the scene's objects
+		// and background color are in place.
+		this.renderer.initScene(this.scene);
 	}
 
 	/**

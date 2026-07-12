@@ -26,7 +26,7 @@ class Texture {
 	}
 
 	/**
-	 * Gets the WebGLTexture object in the WebGL conetext
+	 * Gets the WebGLTexture object in the WebGL context
 	 */
 	get texture(): WebGLTexture {
 		return this._texture;
