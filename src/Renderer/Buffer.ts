@@ -8,7 +8,8 @@
  */
 class VertexBuffer {
 	private _vertices: Float32Array;
-	private _buffer: WebGLBuffer;
+	// Assigned by the Renderer when the buffer is uploaded to the GPU.
+	private _buffer!: WebGLBuffer;
 	private _layout: VertexBufferLayout;
 	private _created: boolean;
 
@@ -88,7 +89,8 @@ class VertexBuffer {
  */
 class IndexBuffer {
 	private _indices: Uint32Array;
-	private _buffer: WebGLBuffer;
+	// Assigned by the Renderer when the buffer is uploaded to the GPU.
+	private _buffer!: WebGLBuffer;
 	private _length: number;
 	private _created: boolean;
 

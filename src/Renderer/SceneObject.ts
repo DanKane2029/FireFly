@@ -35,6 +35,7 @@ class SceneObject {
 	 */
 	constructor(mesh: Mesh, material: Material) {
 		this._id = IdManager.getId();
+		this._name = "";
 		this._mesh = mesh;
 		this._material = material;
 		this._translation = [0, 0, 0];
@@ -42,6 +43,7 @@ class SceneObject {
 		this._rotation = [0, 0, 0];
 		this._transform = mat4.create();
 		this._updateFunction = () => undefined;
+		this.properties = {};
 	}
 
 	/**

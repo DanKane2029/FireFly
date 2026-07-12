@@ -38,6 +38,7 @@ class Scene {
 		this._time = 0;
 		this._camera = new Camera(viewWidth / viewHeight, fov, 0.01, 1000);
 		this._ambientLight = ambientLight;
+		this._backgroundColor = [0, 0, 0, 1];
 	}
 
 	/**

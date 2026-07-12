@@ -14,7 +14,8 @@ enum ShaderType {
  */
 class Shader {
 	private _source: string;
-	private _shader: WebGLShader;
+	// Assigned by the Renderer when the shader is compiled on the GPU.
+	private _shader!: WebGLShader;
 	private _type: ShaderType;
 	private _created: boolean;
 
@@ -103,7 +104,8 @@ class Shader {
  * so the two are compiled and linked together into one WebGL program.
  */
 class ShaderProgram {
-	private _program: WebGLProgram;
+	// Assigned by the Renderer when the program is linked on the GPU.
+	private _program!: WebGLProgram;
 	private _vertexShader: Shader;
 	private _fragmentShader: Shader;
 	private _created: boolean;

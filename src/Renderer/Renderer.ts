@@ -30,7 +30,6 @@ import { PointLight } from "./Light";
  */
 class Renderer {
 	private _gl: WebGL2RenderingContext;
-	private _curAnimationRequestId: number;
 	public _frameBuffer: WebGLFramebuffer;
 	public _renderBuffer: WebGLRenderbuffer;
 	public _idTexture: WebGLTexture;
@@ -45,9 +44,34 @@ class Renderer {
 		this._gl = gl;
 		this._canvasSize = size;
 
-		this._frameBuffer = this._gl.createFramebuffer();
-		this._renderBuffer = this._gl.createRenderbuffer();
-		this._idTexture = this._gl.createTexture();
+		this._frameBuffer = this.assertCreated(
+			this._gl.createFramebuffer(),
+			"framebuffer"
+		);
+		this._renderBuffer = this.assertCreated(
+			this._gl.createRenderbuffer(),
+			"renderbuffer"
+		);
+		this._idTexture = this.assertCreated(
+			this._gl.createTexture(),
+			"id texture"
+		);
+	}
+
+	/**
+	 * Throws a clear error if a WebGL resource failed to be created. The GL
+	 * create* calls return null on failure (e.g. a lost context), which is
+	 * easy to miss - this turns that into an explicit, named failure.
+	 *
+	 * @param resource - The resource returned by a gl.create* call
+	 * @param name - A human-readable name used in the error message
+	 * @returns - The resource, guaranteed non-null
+	 */
+	private assertCreated<T>(resource: T | null, name: string): T {
+		if (resource === null) {
+			throw new Error(`Failed to create WebGL ${name}.`);
+		}
+		return resource;
 	}
 
 	/**
@@ -270,19 +294,12 @@ class Renderer {
 	}
 
 	/**
-	 * Stops drawing the scene
-	 */
-	stopDrawingScene(): void {
-		cancelAnimationFrame(this._curAnimationRequestId);
-	}
-
-	/**
 	 * Creates a vertex buffer in the WebGL context
 	 *
 	 * @param buffer - The vertex buffer to create
 	 */
 	createVertexBuffer(buffer: VertexBuffer): void {
-		buffer.buffer = this._gl.createBuffer();
+		buffer.buffer = this.assertCreated(this._gl.createBuffer(), "buffer");
 		buffer.created = true;
 		this.bindVertexBuffer(buffer);
 		this._gl.bufferData(
@@ -320,7 +337,7 @@ class Renderer {
 	 * @param buffer - The index buffer to create
 	 */
 	createIndexBuffer(buffer: IndexBuffer): void {
-		buffer.buffer = this._gl.createBuffer();
+		buffer.buffer = this.assertCreated(this._gl.createBuffer(), "buffer");
 		buffer.created = true;
 		this.bindIndexBuffer(buffer);
 		this._gl.bufferData(
@@ -363,7 +380,10 @@ class Renderer {
 				? this._gl.FRAGMENT_SHADER
 				: this._gl.VERTEX_SHADER;
 
-		shader.shader = this._gl.createShader(shaderType);
+		shader.shader = this.assertCreated(
+			this._gl.createShader(shaderType),
+			"shader"
+		);
 		this._gl.shaderSource(shader.shader, shader.source);
 		this._gl.compileShader(shader.shader);
 
@@ -384,7 +404,10 @@ class Renderer {
 			this.createShader(shaderProgram.fragmentShader);
 		}
 
-		shaderProgram.program = this._gl.createProgram();
+		shaderProgram.program = this.assertCreated(
+			this._gl.createProgram(),
+			"shader program"
+		);
 
 		this._gl.attachShader(
 			shaderProgram.program,
@@ -429,7 +452,9 @@ class Renderer {
 		name: string,
 		int: number
 	): void {
-		const location: WebGLUniformLocation = this._gl.getUniformLocation(
+		// getUniformLocation returns null when the uniform is unused/optimized
+		// out; the gl.uniform* calls accept null as a harmless no-op.
+		const location = this._gl.getUniformLocation(
 			shaderProgram.program,
 			name
 		);
@@ -444,7 +469,9 @@ class Renderer {
 	 * @param int - The value of the vec3 uniform
 	 */
 	setUniform3f(shaderProgram: ShaderProgram, name: string, vec3: vec3): void {
-		const location: WebGLUniformLocation = this._gl.getUniformLocation(
+		// getUniformLocation returns null when the uniform is unused/optimized
+		// out; the gl.uniform* calls accept null as a harmless no-op.
+		const location = this._gl.getUniformLocation(
 			shaderProgram.program,
 			name
 		);
@@ -459,7 +486,9 @@ class Renderer {
 	 * @param int - The value of the vec4 uniform
 	 */
 	setUniform4f(shaderProgram: ShaderProgram, name: string, vec4: vec4): void {
-		const location: WebGLUniformLocation = this._gl.getUniformLocation(
+		// getUniformLocation returns null when the uniform is unused/optimized
+		// out; the gl.uniform* calls accept null as a harmless no-op.
+		const location = this._gl.getUniformLocation(
 			shaderProgram.program,
 			name
 		);
@@ -478,7 +507,9 @@ class Renderer {
 		name: string,
 		mat4: mat4
 	): void {
-		const location: WebGLUniformLocation = this._gl.getUniformLocation(
+		// getUniformLocation returns null when the uniform is unused/optimized
+		// out; the gl.uniform* calls accept null as a harmless no-op.
+		const location = this._gl.getUniformLocation(
 			shaderProgram.program,
 			name
 		);
@@ -497,7 +528,9 @@ class Renderer {
 		name: string,
 		matrix: mat3
 	): void {
-		const location: WebGLUniformLocation = this._gl.getUniformLocation(
+		// getUniformLocation returns null when the uniform is unused/optimized
+		// out; the gl.uniform* calls accept null as a harmless no-op.
+		const location = this._gl.getUniformLocation(
 			shaderProgram.program,
 			name
 		);
@@ -568,7 +601,10 @@ class Renderer {
 	 * @param texture - The texture to create
 	 */
 	createTexture(texture: Texture): void {
-		texture.texture = this._gl.createTexture();
+		texture.texture = this.assertCreated(
+			this._gl.createTexture(),
+			"texture"
+		);
 		texture.created = true;
 	}
 

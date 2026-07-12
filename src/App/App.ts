@@ -39,10 +39,15 @@ class App {
 			canvasElement.clientHeight
 		);
 
+		const gl = canvasElement.getContext("webgl2", {
+			preserveDrawingBuffer: true,
+		});
+		if (gl === null) {
+			throw new Error("WebGL2 is not supported in this browser.");
+		}
+
 		this._renderer = new Renderer(
-			canvasElement.getContext("webgl2", {
-				preserveDrawingBuffer: true,
-			}),
+			gl,
 			vec2.fromValues(
 				canvasElement.clientWidth,
 				canvasElement.clientHeight
@@ -116,7 +121,7 @@ class App {
 
 		const onClickCallback = this._controller.onClick
 			? (event: MouseEvent) => {
-					this._controller.onClick(this, event);
+					this._controller.onClick?.(this, event);
 			  }
 			: // eslint-disable-next-line @typescript-eslint/no-empty-function
 			  () => {};
@@ -124,7 +129,7 @@ class App {
 
 		const onDragCallback = this._controller.onDrag
 			? (event: MouseEvent) => {
-					this._controller.onDrag(this, event);
+					this._controller.onDrag?.(this, event);
 			  }
 			: // eslint-disable-next-line @typescript-eslint/no-empty-function
 			  () => {};
@@ -132,7 +137,7 @@ class App {
 
 		const onMouseMoveCallback = this._controller.onMouseMove
 			? (event: MouseEvent) => {
-					this._controller.onMouseMove(this, event);
+					this._controller.onMouseMove?.(this, event);
 			  }
 			: // eslint-disable-next-line @typescript-eslint/no-empty-function
 			  () => {};
@@ -140,7 +145,7 @@ class App {
 
 		const onMouseDownCallback = this._controller.onMouseDown
 			? (event: MouseEvent) => {
-					this._controller.onMouseDown(this, event);
+					this._controller.onMouseDown?.(this, event);
 			  }
 			: // eslint-disable-next-line @typescript-eslint/no-empty-function
 			  () => {};
@@ -148,7 +153,7 @@ class App {
 
 		const onMouseUpCallback = this._controller.onMouseUp
 			? (event: MouseEvent) => {
-					this._controller.onMouseUp(this, event);
+					this._controller.onMouseUp?.(this, event);
 			  }
 			: // eslint-disable-next-line @typescript-eslint/no-empty-function
 			  () => {};
@@ -156,7 +161,7 @@ class App {
 
 		const onWheelCallback = this._controller.onWheel
 			? (event: WheelEvent) => {
-					this._controller.onWheel(this, event);
+					this._controller.onWheel?.(this, event);
 			  }
 			: // eslint-disable-next-line @typescript-eslint/no-empty-function
 			  () => {};

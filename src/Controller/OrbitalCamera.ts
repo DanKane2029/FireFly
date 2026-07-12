@@ -66,7 +66,11 @@ class OrbitalControls implements Controller {
 	 * @param event - The mouse event being fired
 	 */
 	onMouseMove(app: App, event: MouseEvent): void {
-		if (this._mouseDownPoint && event.target instanceof Element) {
+		if (
+			this._mouseDownPoint &&
+			this._mouseDownCamPos &&
+			event.target instanceof Element
+		) {
 			// get mouse position
 			const x = (event.clientX / event.target.clientWidth - 0.5) * 2;
 			const y = (1 - event.clientY / event.target.clientHeight - 0.5) * 2;
