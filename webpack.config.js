@@ -53,6 +53,14 @@ module.exports = {
 			{
 				test: /\.(glsl|vs|fs)$/,
                 loader: 'ts-shader-loader'
+			},
+			{
+				// Inline .obj model files as their raw text so they can be
+				// `import`ed as a string and parsed by OBJLoader - mirrors how
+				// ts-shader-loader inlines .glsl above. Keeps model loading fully
+				// synchronous (no fetch), at the cost of bundling the text.
+				test: /\.obj$/i,
+				type: 'asset/source'
 			}
 		]
 	},

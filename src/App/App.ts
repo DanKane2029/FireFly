@@ -9,8 +9,22 @@ import { OrbitalControls } from "../Controller/OrbitalCamera";
 import { SelectObjectController } from "../Controller/SelectObject";
 
 import { createSnowman } from "../SceneObjects/Snowman";
+import { createBunnyScene } from "../SceneObjects/Bunny";
+import { createDragonScene } from "../SceneObjects/Dragon";
+import { SceneObject } from "../Renderer/SceneObject";
 import { PointLight } from "../Renderer/Light";
 import { vec2 } from "gl-matrix";
+
+/**
+ * The selectable test scenes, each a factory that builds a fresh set of objects.
+ * The Renderer uploads whatever objects are in the scene lazily, so swapping
+ * `Scene.objectList` to another factory's output is all a scene switch needs.
+ */
+const SCENES: Record<string, () => SceneObject[]> = {
+	snowman: createSnowman,
+	bunny: createBunnyScene,
+	dragon: createDragonScene,
+};
 
 /**
  * A class that holds and organizes the higher level functionality and objects that the application needs to run
@@ -173,10 +187,29 @@ class App {
 	}
 
 	/**
-	 * Sets the app's controller that specifies the user input. The user can switch between controllers with specific key presses.
-	 * o - Switches to orbital controlls
-	 * c - Switches to Add Cube controlls
-	 * s - Switches to Select Object controls
+	 * Replaces the objects in the scene with a named test scene. The renderer
+	 * uploads the new objects' GPU resources on the next frame automatically, so
+	 * this is all a scene switch needs to do.
+	 *
+	 * @param name - A key of SCENES ("snowman", "bunny", or "dragon").
+	 */
+	loadScene(name: keyof typeof SCENES): void {
+		this.scene.objectList = SCENES[name]();
+	}
+
+	/**
+	 * Wires up the keyboard shortcuts the user can press (the canvas must be
+	 * focused). Two groups of keys:
+	 *
+	 * Controllers (how the mouse behaves):
+	 *   o - Orbital camera controls
+	 *   c - Add Cube controls
+	 *   s - Select Object controls
+	 *
+	 * Scenes (what is being rendered):
+	 *   1 - Snowman (procedural spheres)
+	 *   2 - Stanford Bunny (loaded OBJ)
+	 *   3 - Stanford Dragon (loaded OBJ)
 	 */
 	setControllerSwitches(): void {
 		this._canvasElement.addEventListener(
@@ -196,6 +229,21 @@ class App {
 					case "s":
 						console.log("setting controls to Select Object");
 						this.setController(new SelectObjectController());
+						break;
+
+					case "1":
+						console.log("loading snowman scene");
+						this.loadScene("snowman");
+						break;
+
+					case "2":
+						console.log("loading bunny scene");
+						this.loadScene("bunny");
+						break;
+
+					case "3":
+						console.log("loading dragon scene");
+						this.loadScene("dragon");
 						break;
 				}
 			}).bind(this)
@@ -217,8 +265,8 @@ class App {
 		const light = new PointLight([5, 0, 10]);
 		this.scene.addLight(light);
 
-		const snowman = createSnowman();
-		snowman.forEach((obj) => this.scene.addObject(obj));
+		// Start on the snowman scene; press 2 / 3 to switch to the bunny / dragon.
+		this.loadScene("snowman");
 
 		// One-time framebuffer + GL state setup, now that the scene's objects
 		// and background color are in place.
