@@ -224,10 +224,12 @@ class Renderer {
 
 			// Normals need the inverse-transpose of the model matrix so they
 			// stay perpendicular to the surface under non-uniform scaling.
-			const normalMatrix = mat3.normalFromMat4(
-				mat3.create(),
-				obj.transform
-			);
+			// normalFromMat4 returns null for a singular transform (e.g. a
+			// just-spawned cube still scaled to zero); in that case we leave
+			// normalMatrix as the identity it was initialized to, which is
+			// harmless since such an object is degenerate and invisible.
+			const normalMatrix = mat3.create();
+			mat3.normalFromMat4(normalMatrix, obj.transform);
 			this.setUniform3Mat(shaderProgram, "u_normalMatrix", normalMatrix);
 
 			// setup lights
