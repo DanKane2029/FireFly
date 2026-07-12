@@ -1,9 +1,17 @@
-import { vec3, mat4, quat, glMatrix, mat3, vec4 } from "gl-matrix";
+import { vec3, mat4, quat, glMatrix, mat3 } from "gl-matrix";
 import { UpdateFunction } from "./UpdateFunction";
 import { rotationMatrixToEulerAngles } from "../Math/Conversion";
 
 /**
- * Used to view objects in a scene and describes the perspective of the view on the screen
+ * Used to view objects in a scene and describes the perspective of the view on the screen.
+ *
+ * The camera exposes two matrices the renderer uploads every frame:
+ * - the view matrix, which moves the world in front of the camera (it is the
+ *   inverse of the camera's own world transform), and
+ * - the perspective (projection) matrix, which applies the field-of-view
+ *   frustum.
+ * Both are cached and only recomputed when an input changes, so reading them
+ * every frame does not allocate.
  */
 class Camera {
 	private _aspectRatio: number;
@@ -16,6 +24,14 @@ class Camera {
 	private _far: number;
 	private _fovy: number;
 	private _updateFunction: UpdateFunction;
+
+	// Cached matrices are only rebuilt when a dependency changes.
+	private _perspectiveDirty: boolean;
+	private _viewDirty: boolean;
+
+	// Reused scratch objects so recomputing a matrix never allocates.
+	private _scratchQuat: quat;
+	private _scratchTransform: mat4;
 
 	/**
 	 * Creates a camera object
@@ -30,18 +46,17 @@ class Camera {
 		this._fovy = fovy;
 		this._near = near;
 		this._far = far;
-		this._perspectiveMatrix = mat4.perspective(
-			mat4.create(),
-			glMatrix.toRadian(fovy),
-			this._aspectRatio,
-			near,
-			far
-		);
+		this._perspectiveMatrix = mat4.create();
 		this._translation = vec3.fromValues(0, 0, 0);
 		this._viewMatrix = mat4.create();
 		this._rotation = [0, 0, 0];
 		this._transform = mat4.create();
 		this._updateFunction = () => undefined;
+
+		this._perspectiveDirty = true;
+		this._viewDirty = true;
+		this._scratchQuat = quat.create();
+		this._scratchTransform = mat4.create();
 	}
 
 	/**
@@ -56,38 +71,49 @@ class Camera {
 	 */
 	set aspectRatio(aspectRatio: number) {
 		this._aspectRatio = aspectRatio;
+		this._perspectiveDirty = true;
 	}
 
 	/**
-	 * Gets the perspective matrix of the camera
+	 * Gets the perspective matrix of the camera. Rebuilt only when the
+	 * field-of-view, aspect ratio, or clip planes change.
 	 */
 	get perspectiveMatrix(): mat4 {
-		this._perspectiveMatrix = mat4.perspective(
-			mat4.create(),
-			glMatrix.toRadian(this._fovy),
-			this._aspectRatio,
-			this._near,
-			this._far
-		);
+		if (this._perspectiveDirty) {
+			mat4.perspective(
+				this._perspectiveMatrix,
+				glMatrix.toRadian(this._fovy),
+				this._aspectRatio,
+				this._near,
+				this._far
+			);
+			this._perspectiveDirty = false;
+		}
 		return this._perspectiveMatrix;
 	}
 
 	/**
-	 * Returns and calculates the view matrix of the camera
+	 * Gets the view matrix of the camera. The view matrix is the inverse of the
+	 * camera's world transform, so it moves the world into the camera's frame.
+	 * Rebuilt only when the camera's translation or rotation change.
 	 */
 	get viewMatrix(): mat4 {
-		const rotation: quat = quat.fromEuler(
-			quat.create(),
-			this._rotation[0],
-			this._rotation[1],
-			this._rotation[2]
-		);
-		mat4.fromRotationTranslation(
-			this._transform,
-			rotation,
-			this._translation
-		);
-		return mat4.invert(this._viewMatrix, this._transform);
+		if (this._viewDirty) {
+			quat.fromEuler(
+				this._scratchQuat,
+				this._rotation[0],
+				this._rotation[1],
+				this._rotation[2]
+			);
+			mat4.fromRotationTranslation(
+				this._scratchTransform,
+				this._scratchQuat,
+				this._translation
+			);
+			mat4.invert(this._viewMatrix, this._scratchTransform);
+			this._viewDirty = false;
+		}
+		return this._viewMatrix;
 	}
 
 	/**
@@ -102,6 +128,7 @@ class Camera {
 	 */
 	set translation(vec: vec3) {
 		this._translation = vec;
+		this._viewDirty = true;
 	}
 
 	/**
@@ -116,6 +143,7 @@ class Camera {
 	 */
 	set rotation(vec: vec3) {
 		this._rotation = vec;
+		this._viewDirty = true;
 	}
 
 	/**
@@ -131,6 +159,7 @@ class Camera {
 			this._rotation[1] + dy,
 			this._rotation[2] + dz,
 		];
+		this._viewDirty = true;
 	}
 
 	/**

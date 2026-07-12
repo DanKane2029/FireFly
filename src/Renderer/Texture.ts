@@ -2,10 +2,10 @@
  * An image or pixel array that can be accessed in shader programs
  */
 class Texture {
-	private _texture: WebGLTexture;
+	// Assigned by the Renderer when the texture is uploaded to the GPU.
+	private _texture!: WebGLTexture;
 	private _created: boolean;
 	private _loaded: boolean;
-	private _name: string;
 	private _data: Uint8ClampedArray;
 	private _width: number;
 	private _height: number;
@@ -26,7 +26,7 @@ class Texture {
 	}
 
 	/**
-	 * Gets the WebGLTexture object in the WebGL conetext
+	 * Gets the WebGLTexture object in the WebGL context
 	 */
 	get texture(): WebGLTexture {
 		return this._texture;
@@ -65,13 +65,6 @@ class Texture {
 	 */
 	set loaded(loaded: boolean) {
 		this._loaded = loaded;
-	}
-
-	/**
-	 * Gets the name of the texture
-	 */
-	get name(): string {
-		return this._name;
 	}
 
 	/**

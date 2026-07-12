@@ -1,17 +1,30 @@
 import { Scene } from "../Renderer/Scene";
 import { Renderer } from "../Renderer/Renderer";
+import { Picker } from "../Renderer/Picker";
 import { Controller } from "../Controller/Controller";
 
 // controllers
 import { AddCubeController } from "../Controller/AddCube";
 import { OrbitalControls } from "../Controller/OrbitalCamera";
+import { SelectObjectController } from "../Controller/SelectObject";
 
-import { cube } from "../SceneObjects/Cube";
 import { createSnowman } from "../SceneObjects/Snowman";
-import { PointLight } from "../Renderer/Light";
-import { sphere } from "../SceneObjects/Sphere";
+import { createBunnyScene } from "../SceneObjects/Bunny";
+import { createDragonScene } from "../SceneObjects/Dragon";
 import { SceneObject } from "../Renderer/SceneObject";
+import { PointLight } from "../Renderer/Light";
 import { vec2 } from "gl-matrix";
+
+/**
+ * The selectable test scenes, each a factory that builds a fresh set of objects.
+ * The Renderer uploads whatever objects are in the scene lazily, so swapping
+ * `Scene.objectList` to another factory's output is all a scene switch needs.
+ */
+const SCENES: Record<string, () => SceneObject[]> = {
+	snowman: createSnowman,
+	bunny: createBunnyScene,
+	dragon: createDragonScene,
+};
 
 /**
  * A class that holds and organizes the higher level functionality and objects that the application needs to run
@@ -20,6 +33,7 @@ class App {
 	private _deltaTime: number;
 	private _scene: Scene;
 	private _renderer: Renderer;
+	private _picker: Picker;
 	private _canvasElement: HTMLCanvasElement;
 	private _controller: Controller;
 
@@ -39,14 +53,29 @@ class App {
 			canvasElement.clientHeight
 		);
 
+		// antialias must be false: the default framebuffer would otherwise be
+		// multisampled, and blitFramebuffer (used to copy the rendered image to
+		// the canvas) cannot write into a multisampled framebuffer.
+		const gl = canvasElement.getContext("webgl2", {
+			preserveDrawingBuffer: true,
+			antialias: false,
+		});
+		if (gl === null) {
+			throw new Error("WebGL2 is not supported in this browser.");
+		}
+
 		this._renderer = new Renderer(
-			canvasElement.getContext("webgl2", {
-				preserveDrawingBuffer: true,
-			}),
+			gl,
 			vec2.fromValues(
 				canvasElement.clientWidth,
 				canvasElement.clientHeight
 			)
+		);
+
+		this._picker = new Picker(
+			this._renderer.context,
+			this._renderer.frameBuffer,
+			this._renderer.canvasSize
 		);
 
 		window.addEventListener("resize", () => {
@@ -94,6 +123,13 @@ class App {
 	}
 
 	/**
+	 * Gets the picker the app uses to resolve clicks to scene objects
+	 */
+	get picker(): Picker {
+		return this._picker;
+	}
+
+	/**
 	 * Sets the user event callback functions to specify user interactivity based on a controller object.
 	 *
 	 * @param controller - The controller object that specifies the user interactivity.
@@ -103,7 +139,7 @@ class App {
 
 		const onClickCallback = this._controller.onClick
 			? (event: MouseEvent) => {
-					this._controller.onClick(this, event);
+					this._controller.onClick?.(this, event);
 			  }
 			: // eslint-disable-next-line @typescript-eslint/no-empty-function
 			  () => {};
@@ -111,7 +147,7 @@ class App {
 
 		const onDragCallback = this._controller.onDrag
 			? (event: MouseEvent) => {
-					this._controller.onDrag(this._scene, event);
+					this._controller.onDrag?.(this, event);
 			  }
 			: // eslint-disable-next-line @typescript-eslint/no-empty-function
 			  () => {};
@@ -119,7 +155,7 @@ class App {
 
 		const onMouseMoveCallback = this._controller.onMouseMove
 			? (event: MouseEvent) => {
-					this._controller.onMouseMove(this._scene, event);
+					this._controller.onMouseMove?.(this, event);
 			  }
 			: // eslint-disable-next-line @typescript-eslint/no-empty-function
 			  () => {};
@@ -127,7 +163,7 @@ class App {
 
 		const onMouseDownCallback = this._controller.onMouseDown
 			? (event: MouseEvent) => {
-					this._controller.onMouseDown(this._scene, event);
+					this._controller.onMouseDown?.(this, event);
 			  }
 			: // eslint-disable-next-line @typescript-eslint/no-empty-function
 			  () => {};
@@ -135,7 +171,7 @@ class App {
 
 		const onMouseUpCallback = this._controller.onMouseUp
 			? (event: MouseEvent) => {
-					this._controller.onMouseUp(this._scene, event);
+					this._controller.onMouseUp?.(this, event);
 			  }
 			: // eslint-disable-next-line @typescript-eslint/no-empty-function
 			  () => {};
@@ -143,7 +179,7 @@ class App {
 
 		const onWheelCallback = this._controller.onWheel
 			? (event: WheelEvent) => {
-					this._controller.onWheel(this._scene, event);
+					this._controller.onWheel?.(this, event);
 			  }
 			: // eslint-disable-next-line @typescript-eslint/no-empty-function
 			  () => {};
@@ -151,9 +187,29 @@ class App {
 	}
 
 	/**
-	 * Sets the app's controller that specifies the user input. The user can switch between controllers with specific key presses.
-	 * o - Switches to orbital controlls
-	 * c - Switches to Add Cube controlls
+	 * Replaces the objects in the scene with a named test scene. The renderer
+	 * uploads the new objects' GPU resources on the next frame automatically, so
+	 * this is all a scene switch needs to do.
+	 *
+	 * @param name - A key of SCENES ("snowman", "bunny", or "dragon").
+	 */
+	loadScene(name: keyof typeof SCENES): void {
+		this.scene.objectList = SCENES[name]();
+	}
+
+	/**
+	 * Wires up the keyboard shortcuts the user can press (the canvas must be
+	 * focused). Two groups of keys:
+	 *
+	 * Controllers (how the mouse behaves):
+	 *   o - Orbital camera controls
+	 *   c - Add Cube controls
+	 *   s - Select Object controls
+	 *
+	 * Scenes (what is being rendered):
+	 *   1 - Snowman (procedural spheres)
+	 *   2 - Stanford Bunny (loaded OBJ)
+	 *   3 - Stanford Dragon (loaded OBJ)
 	 */
 	setControllerSwitches(): void {
 		this._canvasElement.addEventListener(
@@ -168,6 +224,26 @@ class App {
 					case "o":
 						console.log("setting controls to Orbital");
 						this.setController(new OrbitalControls());
+						break;
+
+					case "s":
+						console.log("setting controls to Select Object");
+						this.setController(new SelectObjectController());
+						break;
+
+					case "1":
+						console.log("loading snowman scene");
+						this.loadScene("snowman");
+						break;
+
+					case "2":
+						console.log("loading bunny scene");
+						this.loadScene("bunny");
+						break;
+
+					case "3":
+						console.log("loading dragon scene");
+						this.loadScene("dragon");
 						break;
 				}
 			}).bind(this)
@@ -189,8 +265,12 @@ class App {
 		const light = new PointLight([5, 0, 10]);
 		this.scene.addLight(light);
 
-		const snowman = createSnowman();
-		snowman.forEach((obj) => this.scene.addObject(obj));
+		// Start on the snowman scene; press 2 / 3 to switch to the bunny / dragon.
+		this.loadScene("snowman");
+
+		// One-time framebuffer + GL state setup, now that the scene's objects
+		// and background color are in place.
+		this.renderer.initScene(this.scene);
 	}
 
 	/**

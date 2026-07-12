@@ -1,4 +1,4 @@
-import { vec4, mat4, vec3, vec2 } from "gl-matrix";
+import { vec4, mat4, mat3, vec3, vec2 } from "gl-matrix";
 
 import {
 	VertexBuffer,
@@ -16,15 +16,26 @@ import { Camera } from "./Camera";
 import { PointLight } from "./Light";
 
 /**
- * Renders a scene to a WebGL canvas
+ * Renders a scene to a WebGL canvas.
+ *
+ * The Renderer owns the WebGL2 context and translates the engine's high-level
+ * objects (scenes, meshes, materials) into GPU calls. The overall flow is:
+ *
+ *   1. initScene()          - one-time framebuffer + global GL state setup.
+ *   2. ensureSceneResources() - lazily upload buffers/shaders/textures.
+ *   3. drawScene()          - per frame: set uniforms and issue draw calls.
+ *
+ * Rendering targets an offscreen framebuffer with two color attachments: the
+ * visible image and an integer id-texture used for GPU object picking.
  */
 class Renderer {
 	private _gl: WebGL2RenderingContext;
-	private _curAnimationRequestId: number;
 	public _frameBuffer: WebGLFramebuffer;
 	public _renderBuffer: WebGLRenderbuffer;
 	public _idTexture: WebGLTexture;
+	private _depthBuffer: WebGLRenderbuffer;
 	private _canvasSize: vec2;
+	private _clearColor: vec4;
 
 	/**
 	 * Creates a new Renderer
@@ -34,26 +45,67 @@ class Renderer {
 	constructor(gl: WebGL2RenderingContext, size: vec2) {
 		this._gl = gl;
 		this._canvasSize = size;
+		this._clearColor = [0, 0, 0, 1];
 
-		this._frameBuffer = this._gl.createFramebuffer();
-		this._renderBuffer = this._gl.createRenderbuffer();
-		this._idTexture = this._gl.createTexture();
+		this._frameBuffer = this.assertCreated(
+			this._gl.createFramebuffer(),
+			"framebuffer"
+		);
+		this._renderBuffer = this.assertCreated(
+			this._gl.createRenderbuffer(),
+			"renderbuffer"
+		);
+		this._idTexture = this.assertCreated(
+			this._gl.createTexture(),
+			"id texture"
+		);
+		this._depthBuffer = this.assertCreated(
+			this._gl.createRenderbuffer(),
+			"depth renderbuffer"
+		);
 	}
 
 	/**
-	 * Creates all the buffers, shader programs, and textures for the objects in the scene
+	 * Throws a clear error if a WebGL resource failed to be created. The GL
+	 * create* calls return null on failure (e.g. a lost context), which is
+	 * easy to miss - this turns that into an explicit, named failure.
 	 *
-	 * @param scene - The scene to preprocess
+	 * @param resource - The resource returned by a gl.create* call
+	 * @param name - A human-readable name used in the error message
+	 * @returns - The resource, guaranteed non-null
 	 */
-	preprocessScene(scene: Scene): void {
+	private assertCreated<T>(resource: T | null, name: string): T {
+		if (resource === null) {
+			throw new Error(`Failed to create WebGL ${name}.`);
+		}
+		return resource;
+	}
+
+	/**
+	 * One-time setup for a scene. Configures the offscreen framebuffer used for
+	 * rendering and sets the global GL state that never changes frame to frame.
+	 *
+	 * The framebuffer has two color attachments (multiple render targets):
+	 * - COLOR_ATTACHMENT0: an RGBA renderbuffer holding the visible image.
+	 * - COLOR_ATTACHMENT1: an R16I texture where each pixel stores the id of the
+	 *   object drawn there. Reading this texture back on click is how GPU
+	 *   picking selects an object (see Picker).
+	 *
+	 * Call once after the scene's objects and background color are set, before
+	 * the first draw.
+	 *
+	 * @param scene - The scene whose global state (e.g. clear color) to apply
+	 */
+	initScene(scene: Scene): void {
 		// set up framebuffer
 		this._gl.bindFramebuffer(this._gl.FRAMEBUFFER, this._frameBuffer);
 
-		// set up color buffer
+		// set up color buffer (RGBA8: full 8 bits/channel, and a same-format
+		// blit target as the RGBA8 canvas)
 		this._gl.bindRenderbuffer(this._gl.RENDERBUFFER, this._renderBuffer);
 		this._gl.renderbufferStorage(
 			this._gl.RENDERBUFFER,
-			this._gl.RGBA4,
+			this._gl.RGBA8,
 			this._canvasSize[0],
 			this._canvasSize[1]
 		);
@@ -65,7 +117,7 @@ class Renderer {
 		);
 		this._gl.bindRenderbuffer(this._gl.RENDERBUFFER, null);
 
-		// set up id texture
+		// set up id texture (COLOR_ATTACHMENT1) for GPU picking
 		this._gl.activeTexture(this._gl.TEXTURE0);
 		this._gl.bindTexture(this._gl.TEXTURE_2D, this._idTexture);
 		this._gl.texStorage2D(
@@ -83,15 +135,57 @@ class Renderer {
 			0
 		);
 
-		// attach color buffers to
+		// depth buffer so depth testing works while rendering into this
+		// framebuffer (the default framebuffer's depth buffer is not used here)
+		this._gl.bindRenderbuffer(this._gl.RENDERBUFFER, this._depthBuffer);
+		this._gl.renderbufferStorage(
+			this._gl.RENDERBUFFER,
+			this._gl.DEPTH_COMPONENT16,
+			this._canvasSize[0],
+			this._canvasSize[1]
+		);
+		this._gl.framebufferRenderbuffer(
+			this._gl.FRAMEBUFFER,
+			this._gl.DEPTH_ATTACHMENT,
+			this._gl.RENDERBUFFER,
+			this._depthBuffer
+		);
+		this._gl.bindRenderbuffer(this._gl.RENDERBUFFER, null);
+
+		// draw to both the color and id attachments each frame
 		this._gl.drawBuffers([
 			this._gl.COLOR_ATTACHMENT0,
 			this._gl.COLOR_ATTACHMENT1,
 		]);
 
+		const status = this._gl.checkFramebufferStatus(this._gl.FRAMEBUFFER);
+		if (status !== this._gl.FRAMEBUFFER_COMPLETE) {
+			console.error(
+				`Render framebuffer is incomplete (status 0x${status.toString(
+					16
+				)}); nothing will be drawn to the canvas.`
+			);
+		}
+
 		this._gl.bindFramebuffer(this._gl.FRAMEBUFFER, null);
 
-		// creates all the buffers and shader programs for each object in the scene
+		// global GL state that is constant for the lifetime of the scene
+		this._gl.cullFace(this._gl.BACK);
+		this.setClearColor(scene.backgroundColor);
+		this.enable(this._gl.DEPTH_TEST);
+		this._gl.enable(this._gl.BLEND);
+		this._gl.blendFunc(this._gl.SRC_ALPHA, this._gl.ONE_MINUS_SRC_ALPHA);
+	}
+
+	/**
+	 * Lazily uploads GPU resources (vertex/index buffers, shader programs,
+	 * textures) for any object that has not been uploaded yet. Objects track
+	 * this with `created` flags, so this is cheap to call every frame and
+	 * automatically picks up objects added at runtime.
+	 *
+	 * @param scene - The scene whose objects to upload
+	 */
+	ensureSceneResources(scene: Scene): void {
 		scene.objectList.forEach((obj: SceneObject) => {
 			if (!obj.vertexBuffer.created) {
 				this.createVertexBuffer(obj.vertexBuffer);
@@ -130,14 +224,6 @@ class Renderer {
 				}
 			});
 		});
-
-		this._gl.cullFace(this._gl.BACK);
-		this.setClearColor(scene.backgroundColor);
-		this.enable(this._gl.DEPTH_TEST);
-		this._gl.enable(this._gl.BLEND);
-		this._gl.blendFunc(this._gl.SRC_ALPHA, this._gl.ONE_MINUS_SRC_ALPHA);
-		this._gl.clear(this._gl.COLOR_BUFFER_BIT);
-		this._gl.clear(this._gl.DEPTH_BUFFER_BIT);
 	}
 
 	/**
@@ -148,13 +234,13 @@ class Renderer {
 	drawScene(scene: Scene): void {
 		this.clear();
 
-		scene.updateFunction();
-
-		this.preprocessScene(scene);
+		this.ensureSceneResources(scene);
 
 		const cam: Camera = scene.camera;
 
-		this._gl.bindRenderbuffer(this._gl.RENDERBUFFER, this._renderBuffer);
+		// Render into the offscreen framebuffer so each object writes both its
+		// shaded color (attachment 0) and its id (attachment 1) in one pass.
+		this._gl.bindFramebuffer(this._gl.FRAMEBUFFER, this._frameBuffer);
 
 		scene.objectList.forEach((obj: SceneObject) => {
 			this.bindSceneObject(obj);
@@ -171,6 +257,16 @@ class Renderer {
 
 			this.setUniform4Mat(shaderProgram, "u_transform", obj.transform);
 			this.setUniform4Mat(shaderProgram, "u_view", cam.viewMatrix);
+
+			// Normals need the inverse-transpose of the model matrix so they
+			// stay perpendicular to the surface under non-uniform scaling.
+			// normalFromMat4 returns null for a singular transform (e.g. a
+			// just-spawned cube still scaled to zero); in that case we leave
+			// normalMatrix as the identity it was initialized to, which is
+			// harmless since such an object is degenerate and invisible.
+			const normalMatrix = mat3.create();
+			mat3.normalFromMat4(normalMatrix, obj.transform);
+			this.setUniform3Mat(shaderProgram, "u_normalMatrix", normalMatrix);
 
 			// setup lights
 			this.setUniform1i(
@@ -201,35 +297,58 @@ class Renderer {
 			this.unbindSceneObject();
 		});
 
-		this._gl.bindFramebuffer(this._gl.FRAMEBUFFER, this._frameBuffer);
+		// Copy the shaded color image onto the visible canvas. The id-texture
+		// (attachment 1) stays on the GPU for the Picker to read on demand.
+		this.blitColorToCanvas();
+
+		this._gl.bindFramebuffer(this._gl.FRAMEBUFFER, null);
+	}
+
+	/**
+	 * Copies the offscreen framebuffer's color image (COLOR_ATTACHMENT0) onto
+	 * the default framebuffer, i.e. the visible canvas. Only the color image is
+	 * copied - the id-texture is left in the framebuffer for picking.
+	 */
+	private blitColorToCanvas(): void {
+		const width = this._canvasSize[0];
+		const height = this._canvasSize[1];
+
+		this._gl.bindFramebuffer(this._gl.READ_FRAMEBUFFER, this._frameBuffer);
 		this._gl.readBuffer(this._gl.COLOR_ATTACHMENT0);
+		this._gl.bindFramebuffer(this._gl.DRAW_FRAMEBUFFER, null);
 
-		const format = this._gl.getParameter(
-			this._gl.IMPLEMENTATION_COLOR_READ_FORMAT
+		this._gl.blitFramebuffer(
+			0,
+			0,
+			width,
+			height,
+			0,
+			0,
+			width,
+			height,
+			this._gl.COLOR_BUFFER_BIT,
+			this._gl.NEAREST
 		);
-		const type = this._gl.getParameter(
-			this._gl.IMPLEMENTATION_COLOR_READ_TYPE
-		);
-
-		const data = new Float32Array(4);
-
-		this._gl.readPixels(
-			this._canvasSize[0] * 0.5,
-			this._canvasSize[1] * 0.45,
-			1,
-			1,
-			format,
-			type,
-			data
-		);
-
-		console.log(data);
-
-		this._gl.bindRenderbuffer(this._gl.RENDERBUFFER, null);
 	}
 
 	get context(): WebGL2RenderingContext {
 		return this._gl;
+	}
+
+	/**
+	 * The offscreen framebuffer the scene is rendered into. Its second color
+	 * attachment holds the object-id texture the Picker reads.
+	 */
+	get frameBuffer(): WebGLFramebuffer {
+		return this._frameBuffer;
+	}
+
+	/**
+	 * The pixel dimensions of the framebuffer's attachments (including the
+	 * id-texture the Picker samples).
+	 */
+	get canvasSize(): vec2 {
+		return this._canvasSize;
 	}
 
 	/**
@@ -244,19 +363,12 @@ class Renderer {
 	}
 
 	/**
-	 * Stops drawing the scene
-	 */
-	stopDrawingScene(): void {
-		cancelAnimationFrame(this._curAnimationRequestId);
-	}
-
-	/**
 	 * Creates a vertex buffer in the WebGL context
 	 *
 	 * @param buffer - The vertex buffer to create
 	 */
 	createVertexBuffer(buffer: VertexBuffer): void {
-		buffer.buffer = this._gl.createBuffer();
+		buffer.buffer = this.assertCreated(this._gl.createBuffer(), "buffer");
 		buffer.created = true;
 		this.bindVertexBuffer(buffer);
 		this._gl.bufferData(
@@ -294,7 +406,7 @@ class Renderer {
 	 * @param buffer - The index buffer to create
 	 */
 	createIndexBuffer(buffer: IndexBuffer): void {
-		buffer.buffer = this._gl.createBuffer();
+		buffer.buffer = this.assertCreated(this._gl.createBuffer(), "buffer");
 		buffer.created = true;
 		this.bindIndexBuffer(buffer);
 		this._gl.bufferData(
@@ -337,7 +449,10 @@ class Renderer {
 				? this._gl.FRAGMENT_SHADER
 				: this._gl.VERTEX_SHADER;
 
-		shader.shader = this._gl.createShader(shaderType);
+		shader.shader = this.assertCreated(
+			this._gl.createShader(shaderType),
+			"shader"
+		);
 		this._gl.shaderSource(shader.shader, shader.source);
 		this._gl.compileShader(shader.shader);
 
@@ -358,7 +473,10 @@ class Renderer {
 			this.createShader(shaderProgram.fragmentShader);
 		}
 
-		shaderProgram.program = this._gl.createProgram();
+		shaderProgram.program = this.assertCreated(
+			this._gl.createProgram(),
+			"shader program"
+		);
 
 		this._gl.attachShader(
 			shaderProgram.program,
@@ -403,7 +521,9 @@ class Renderer {
 		name: string,
 		int: number
 	): void {
-		const location: WebGLUniformLocation = this._gl.getUniformLocation(
+		// getUniformLocation returns null when the uniform is unused/optimized
+		// out; the gl.uniform* calls accept null as a harmless no-op.
+		const location = this._gl.getUniformLocation(
 			shaderProgram.program,
 			name
 		);
@@ -418,7 +538,9 @@ class Renderer {
 	 * @param int - The value of the vec3 uniform
 	 */
 	setUniform3f(shaderProgram: ShaderProgram, name: string, vec3: vec3): void {
-		const location: WebGLUniformLocation = this._gl.getUniformLocation(
+		// getUniformLocation returns null when the uniform is unused/optimized
+		// out; the gl.uniform* calls accept null as a harmless no-op.
+		const location = this._gl.getUniformLocation(
 			shaderProgram.program,
 			name
 		);
@@ -433,7 +555,9 @@ class Renderer {
 	 * @param int - The value of the vec4 uniform
 	 */
 	setUniform4f(shaderProgram: ShaderProgram, name: string, vec4: vec4): void {
-		const location: WebGLUniformLocation = this._gl.getUniformLocation(
+		// getUniformLocation returns null when the uniform is unused/optimized
+		// out; the gl.uniform* calls accept null as a harmless no-op.
+		const location = this._gl.getUniformLocation(
 			shaderProgram.program,
 			name
 		);
@@ -452,11 +576,34 @@ class Renderer {
 		name: string,
 		mat4: mat4
 	): void {
-		const location: WebGLUniformLocation = this._gl.getUniformLocation(
+		// getUniformLocation returns null when the uniform is unused/optimized
+		// out; the gl.uniform* calls accept null as a harmless no-op.
+		const location = this._gl.getUniformLocation(
 			shaderProgram.program,
 			name
 		);
 		this._gl.uniformMatrix4fv(location, false, mat4);
+	}
+
+	/**
+	 * Sets a mat3 uniform in a shader program
+	 *
+	 * @param shaderProgram - The shader program to set the mat3 in
+	 * @param name - The name of the mat3 uniform
+	 * @param matrix - The value of the mat3 uniform
+	 */
+	setUniform3Mat(
+		shaderProgram: ShaderProgram,
+		name: string,
+		matrix: mat3
+	): void {
+		// getUniformLocation returns null when the uniform is unused/optimized
+		// out; the gl.uniform* calls accept null as a harmless no-op.
+		const location = this._gl.getUniformLocation(
+			shaderProgram.program,
+			name
+		);
+		this._gl.uniformMatrix3fv(location, false, matrix);
 	}
 
 	/**
@@ -523,7 +670,10 @@ class Renderer {
 	 * @param texture - The texture to create
 	 */
 	createTexture(texture: Texture): void {
-		texture.texture = this._gl.createTexture();
+		texture.texture = this.assertCreated(
+			this._gl.createTexture(),
+			"texture"
+		);
 		texture.created = true;
 	}
 
@@ -602,24 +752,33 @@ class Renderer {
 	 * @param color - The clear color value
 	 */
 	setClearColor(color: vec4): void {
+		this._clearColor = color;
 		this._gl.clearColor(color[0], color[1], color[2], color[3]);
 	}
 
 	/**
-	 * Clears the frame buffer to a blank screen of the clear color.
+	 * Clears the offscreen framebuffer at the start of a frame:
+	 * - attachment 0 (the color image) to the background color,
+	 * - attachment 1 (the picking id-texture) to -1 = "no object here",
+	 * - the depth buffer so stale depth values don't block new fragments.
+	 *
+	 * The visible canvas does not need a separate clear: every frame the whole
+	 * color image is blitted onto it (see blitColorToCanvas), fully overwriting
+	 * the previous frame.
 	 */
 	clear(): void {
 		this._gl.bindFramebuffer(this._gl.FRAMEBUFFER, this._frameBuffer);
 		this._gl.clearBufferfv(
 			this._gl.COLOR,
 			0,
-			new Float32Array([0, 0, 0, 0])
+			new Float32Array(this._clearColor)
 		);
 		this._gl.clearBufferiv(
 			this._gl.COLOR,
 			1,
 			new Int16Array([-1, -1, -1, -1])
 		);
+		this._gl.clear(this._gl.DEPTH_BUFFER_BIT);
 		this._gl.bindFramebuffer(this._gl.FRAMEBUFFER, null);
 	}
 

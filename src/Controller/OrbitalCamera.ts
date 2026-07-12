@@ -1,4 +1,4 @@
-import { Scene } from "../Renderer/Scene";
+import { App } from "../App/App";
 import { Camera } from "../Renderer/Camera";
 import { Controller } from "./Controller";
 import { vec3, vec2 } from "gl-matrix";
@@ -6,102 +6,49 @@ import {
 	toSphericalCoord,
 	toCatesianCoord,
 } from "../Math/SphericalCoordinates";
-import { App } from "../App/App";
 
 /**
- * Use the mouse to drag the camera position around the origin while looking at the origin.
+ * Orbital camera controls: drag the mouse to rotate the camera around the
+ * origin (keeping it aimed at the origin), and scroll to move closer or
+ * further away. Positions are tracked in spherical coordinates so the camera
+ * stays on a sphere around the target.
  */
 class OrbitalControls implements Controller {
 	private _mouseDownPoint: vec2 | undefined;
 	private _mouseDownCamPos: vec3 | undefined;
 	private _sensitivity = 1.3;
 
-	onClick(app: App, event: MouseEvent) {
-		if (event.target instanceof Element) {
-			const gl: WebGL2RenderingContext = app.renderer.context;
-			// const data = new Int16Array(1);
-			const data = new Float32Array(4);
-			const x = event.clientX;
-			const y = event.target.clientHeight - event.clientY;
-
-			gl.bindFramebuffer(gl.FRAMEBUFFER, app.renderer._frameBuffer);
-			gl.readBuffer(gl.COLOR_ATTACHMENT0);
-
-			const format = gl.getParameter(gl.IMPLEMENTATION_COLOR_READ_FORMAT);
-			const type = gl.getParameter(gl.IMPLEMENTATION_COLOR_READ_TYPE);
-
-			console.log(format, type);
-			app.render();
-			gl.readPixels(
-				event.clientX,
-				event.target.clientHeight - event.clientY,
-				1,
-				1,
-				format,
-				type,
-				data
-			);
-
-			// gl.readPixels(
-			// 	0,
-			// 	0,
-			// 	event.target.clientWidth,
-			// 	event.target.clientHeight,
-			// 	format,
-			// 	type,
-			// 	data
-			// );
-
-			console.log(
-				x / event.target.clientWidth,
-				y / event.target.clientHeight,
-				data
-			);
-			gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-		}
-
-		// const fb = gl.createFramebuffer();
-		// gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
-		// gl.readBuffer(gl.NONE);
-		// const format = gl.getParameter(gl.IMPLEMENTATION_COLOR_READ_FORMAT);
-		// const type = gl.getParameter(gl.IMPLEMENTATION_COLOR_READ_TYPE);
-		// const data = new Float32Array(1);
-		// gl.readPixels(event.clientX, event.clientY, 1, 1, format, type, data);
-		// console.log(data);
-		//gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-	}
-
 	/**
-	 * Moves the camera coser or further away from the origin.
+	 * Moves the camera closer to or further from the origin.
 	 *
-	 * @param scene - The scene being viewed
+	 * @param app - The application being interacted with
 	 * @param event - The wheel event being fired
 	 */
-	onWheel(scene: Scene, event: WheelEvent): void {
-		const camPos = scene.camera.translation;
-		const camSphericalCoord = toSphericalCoord(camPos);
+	onWheel(app: App, event: WheelEvent): void {
+		const camera = app.scene.camera;
+		const camSphericalCoord = toSphericalCoord(camera.translation);
 
 		const zoomDir = event.deltaY < 0 ? -1 : 1;
 		const zoomValue = 0.075;
 
 		camSphericalCoord.radius += zoomDir * zoomValue;
 		camSphericalCoord.radius = Math.max(0.001, camSphericalCoord.radius);
-		scene.camera.translation = toCatesianCoord(camSphericalCoord);
+		camera.translation = toCatesianCoord(camSphericalCoord);
 	}
 
 	/**
 	 * Initializes rotating the camera
 	 *
-	 * @param scene - The scene being viewed
+	 * @param app - The application being interacted with
 	 * @param event - The mouse event being fired
 	 */
-	onMouseDown(scene: Scene, event: MouseEvent): void {
+	onMouseDown(app: App, event: MouseEvent): void {
 		if (event.target instanceof Element) {
 			const x = (event.clientX / event.target.clientWidth - 0.5) * 2;
 			const y = (1 - event.clientY / event.target.clientHeight - 0.5) * 2;
 			this._mouseDownPoint = vec2.fromValues(x, y);
 		}
-		this._mouseDownCamPos = scene.camera.translation;
+		this._mouseDownCamPos = app.scene.camera.translation;
 	}
 
 	/**
@@ -115,17 +62,21 @@ class OrbitalControls implements Controller {
 	/**
 	 * If the mouse button is being pressed rotate the camera around the origin based on how far the mouse has been dragged.
 	 *
-	 * @param scene - The scene being viewed
+	 * @param app - The application being interacted with
 	 * @param event - The mouse event being fired
 	 */
-	onMouseMove(scene: Scene, event: MouseEvent): void {
-		if (this._mouseDownPoint && event.target instanceof Element) {
+	onMouseMove(app: App, event: MouseEvent): void {
+		if (
+			this._mouseDownPoint &&
+			this._mouseDownCamPos &&
+			event.target instanceof Element
+		) {
 			// get mouse position
 			const x = (event.clientX / event.target.clientWidth - 0.5) * 2;
 			const y = (1 - event.clientY / event.target.clientHeight - 0.5) * 2;
 			const curMousePos = vec2.fromValues(x, y);
 
-			const cam: Camera = scene.camera;
+			const cam: Camera = app.scene.camera;
 
 			// get orthogonal vectors to camera direction
 			const dir = vec3.create();

@@ -8,7 +8,12 @@ import { Texture } from "./Texture";
 import { Mesh } from "../Geometry/Mesh";
 
 /**
- * An object that can be rendered to the scene
+ * A single renderable thing in the scene. It ties together the three pieces
+ * the renderer needs: a Mesh (its geometry), a Material (how its surface
+ * looks), and a transform (where it sits, built from translation, rotation in
+ * Euler degrees, and scale). Each object also carries a unique id, which the
+ * shaders write into the picking id-texture so clicks can be resolved back to
+ * this object.
  */
 class SceneObject {
 	private _name: string;
@@ -23,23 +28,22 @@ class SceneObject {
 	properties: Record<string, unknown>;
 
 	/**
-	 * Creats a new scene object
+	 * Creates a new scene object
 	 *
-	 * @param vertexBuffer - The vertex buffer that holds the vertex information of the scene object
-	 * @param indexBuffer - The index buffer that holds the index information of teh scene object
-	 * @param material - The material of the scene object
+	 * @param mesh - The mesh that holds the geometry (vertex + index buffers) of the scene object
+	 * @param material - The material (shader program + properties) of the scene object
 	 */
 	constructor(mesh: Mesh, material: Material) {
 		this._id = IdManager.getId();
+		this._name = "";
 		this._mesh = mesh;
-		// this._vertexBuffer = vertexBuffer;
-		// this._indexBuffer = indexBuffer;
 		this._material = material;
 		this._translation = [0, 0, 0];
 		this._scale = [1, 1, 1];
 		this._rotation = [0, 0, 0];
 		this._transform = mat4.create();
 		this._updateFunction = () => undefined;
+		this.properties = {};
 	}
 
 	/**
@@ -120,14 +124,14 @@ class SceneObject {
 	}
 
 	/**
-	 * Sets the rotaion vector in degrees of the scene object
+	 * Sets the rotation vector in degrees of the scene object
 	 */
 	set rotation(vec: vec3) {
 		this._rotation = vec;
 	}
 
 	/**
-	 * Gets teh rotation vector in degrees of the scene object
+	 * Gets the rotation vector in degrees of the scene object
 	 */
 	get rotation(): vec3 {
 		return this._rotation;
@@ -149,18 +153,7 @@ class SceneObject {
 	}
 
 	/**
-	 * Updates the vertex and index buffer of the scene object
-	 *
-	 * @param indexBuffer - The updated index buffer of the new geometry
-	 * @param vertexBuffer - The updated vertex buffer of the new geometry
-	 */
-	// updateGeometry(indexBuffer: IndexBuffer, vertexBuffer: VertexBuffer): void {
-	// 	this._mesh.indexBuffer = indexBuffer;
-	// 	this._mesh.vertexBuffer = vertexBuffer;
-	// }
-
-	/**
-	 * Gets and calculates the tranform matrix for the scene object
+	 * Gets and calculates the transform matrix for the scene object
 	 */
 	get transform(): mat4 {
 		const rotation: quat = quat.fromEuler(

@@ -7,11 +7,15 @@ enum ShaderType {
 }
 
 /**
- * Describes a program that can be run on the GPU to render a material on a scene object
+ * A single GPU shader stage - either a vertex shader (runs per vertex, decides
+ * where each vertex lands on screen) or a fragment shader (runs per pixel,
+ * decides its color). Holds the GLSL source and, once compiled, the WebGL
+ * handle. The `created` flag guards against compiling the same source twice.
  */
 class Shader {
 	private _source: string;
-	private _shader: WebGLShader;
+	// Assigned by the Renderer when the shader is compiled on the GPU.
+	private _shader!: WebGLShader;
 	private _type: ShaderType;
 	private _created: boolean;
 
@@ -95,10 +99,13 @@ class Shader {
 }
 
 /**
- * A Vertex and Fragment Shader coupling that is used to render a scene object to the screen
+ * A linked vertex + fragment shader pair - the complete GPU program used to
+ * draw a surface. The vertex stage feeds its outputs into the fragment stage,
+ * so the two are compiled and linked together into one WebGL program.
  */
 class ShaderProgram {
-	private _program: WebGLProgram;
+	// Assigned by the Renderer when the program is linked on the GPU.
+	private _program!: WebGLProgram;
 	private _vertexShader: Shader;
 	private _fragmentShader: Shader;
 	private _created: boolean;

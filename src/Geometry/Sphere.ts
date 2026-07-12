@@ -6,9 +6,10 @@ import { ParameterizedGeometry } from "./ParameterizedGeometry";
 import { Vertex } from "./Vertex";
 
 /**
- * The set of points equadistant to a single point.
+ * A sphere: the set of points equidistant from a center. Tessellated as a UV
+ * sphere - a grid of latitude rings and longitude columns.
  */
-class Sphere implements ParameterizedGeometry {
+class Sphere extends ParameterizedGeometry {
 	private _radius: number;
 
 	/**
@@ -17,6 +18,7 @@ class Sphere implements ParameterizedGeometry {
 	 * @param radius - The distance from the set of points to the center
 	 */
 	constructor(radius: number) {
+		super();
 		this._radius = radius;
 	}
 
@@ -37,15 +39,23 @@ class Sphere implements ParameterizedGeometry {
 	/**
 	 * Generates a mesh object from the sphere
 	 *
-	 * @param detailLevel - Dictates the number of vertices to generate on the sphere's surface.
+	 * @param detailLevel - Number of latitude bands / longitude columns; higher
+	 * values give a rounder sphere.
 	 * @returns - The mesh that represents the sphere geometry
 	 */
 	calculateMesh(detailLevel: number): Mesh {
+		// Latitude rings from the north pole (theta = 0) to the south pole
+		// (theta = pi): detailLevel + 1 rings for detailLevel bands.
 		const thetas = new Array(detailLevel + 1)
 			.fill(0)
 			.map((_, i) => (i * Math.PI) / detailLevel);
 
-		const phis = new Array(detailLevel + 1)
+		// Longitude columns spanning [0, 2*pi). We generate exactly detailLevel
+		// columns and deliberately stop short of 2*pi: phi = 0 and phi = 2*pi
+		// are the same meridian, so including both would duplicate the seam
+		// column and produce degenerate quads there. The seam is closed in the
+		// index loop below by wrapping the neighbour column modulo detailLevel.
+		const phis = new Array(detailLevel)
 			.fill(0)
 			.map((_, i) => (i * Math.PI * 2) / detailLevel);
 
@@ -55,23 +65,28 @@ class Sphere implements ParameterizedGeometry {
 			)
 		);
 
+		const columns = phis.length;
 		const indices: number[][] = [];
-		spherePoints.slice(0, -1).forEach((row: vec3[], i: number) => {
-			row.slice(0, -1).forEach((sp: vec3, j: number) => {
-				const topLeftIndex = i * row.length + j;
-				const bottomLeftIndex = (i + 1) * row.length + j;
-				const bottomRightIndex = (i + 1) * row.length + (j + 1);
-				const topRightIndex = i * row.length + j + 1;
+		for (let i = 0; i < thetas.length - 1; i++) {
+			for (let j = 0; j < columns; j++) {
+				// Wrap the right-hand column so the last quad in each ring
+				// stitches back to the first, closing the seam.
+				const jNext = (j + 1) % columns;
+				const topLeft = i * columns + j;
+				const bottomLeft = (i + 1) * columns + j;
+				const bottomRight = (i + 1) * columns + jNext;
+				const topRight = i * columns + jNext;
 
-				indices.push([topLeftIndex, bottomLeftIndex, bottomRightIndex]);
-				indices.push([topLeftIndex, bottomRightIndex, topRightIndex]);
-			});
-		});
+				indices.push([topLeft, bottomLeft, bottomRight]);
+				indices.push([topLeft, bottomRight, topRight]);
+			}
+		}
 
 		const vertexList: Vertex[] = spherePoints.flat().map((p: vec3) => {
+			// For a sphere centred at the origin, the outward surface normal at
+			// a point is simply that point's position normalized.
 			const normal = vec3.create();
-			vec3.sub(normal, p, vec3.fromValues(0, 0, 0));
-			vec3.normalize(normal, normal);
+			vec3.normalize(normal, p);
 			return {
 				position: p,
 				normal: normal,
