@@ -5,7 +5,7 @@
 	"main": "index.js",
 	"scripts": {
 		"format": "npx prettier --write src/",
-		"lint": "npx eslint -c .eslintrc.json --ext ts --fix ./src",
+		"lint": "npx eslint -c .eslintrc.json --ext ts,tsx --fix ./src",
 		"build": "npm run format && webpack --mode production",
 		"start:dev": "npm run format && webpack-dev-server --mode development",
 		"start": "npm run format && webpack serve --mode production",
@@ -16,6 +16,8 @@
 	"devDependencies": {
 		"@babel/core": "^7.18.9",
 		"@jest/globals": "^29.7.0",
+		"@types/react": "^18.3.31",
+		"@types/react-dom": "^18.3.7",
 		"@typescript-eslint/eslint-plugin": "^5.31.0",
 		"@typescript-eslint/parser": "^5.31.0",
 		"babel-loader": "^8.2.5",
@@ -36,6 +38,10 @@
 		"webpack-dev-server": "^4.9.3"
 	},
 	"dependencies": {
-		"gl-matrix": "^3.4.3"
+		"dockview": "^7.0.2",
+		"dockview-react": "^7.0.2",
+		"gl-matrix": "^3.4.3",
+		"react": "^18.3.1",
+		"react-dom": "^18.3.1"
 	}
 }

@@ -802,6 +802,67 @@ class Renderer {
 	}
 
 	/**
+	 * Resizes the offscreen framebuffer and its attachments to a new pixel size.
+	 *
+	 * Changing the GL viewport alone (setViewport) is not enough: the color, id,
+	 * and depth attachments were allocated at a fixed size in initScene, so
+	 * without reallocating them the rendered image and the picking id-texture
+	 * keep their old resolution and object picking drifts once the canvas
+	 * changes size. Renderbuffers can be re-storaged in place; the id texture was
+	 * created with immutable storage (texStorage2D), so it must be recreated.
+	 *
+	 * _canvasSize is updated in place so holders of the reference (e.g. the
+	 * Picker) keep seeing the current size.
+	 *
+	 * @param width - The new width in device pixels
+	 * @param height - The new height in device pixels
+	 */
+	resize(width: number, height: number): void {
+		const w = Math.max(1, Math.floor(width));
+		const h = Math.max(1, Math.floor(height));
+		vec2.set(this._canvasSize, w, h);
+
+		this._gl.bindFramebuffer(this._gl.FRAMEBUFFER, this._frameBuffer);
+
+		// Color renderbuffer (COLOR_ATTACHMENT0): resizable in place.
+		this._gl.bindRenderbuffer(this._gl.RENDERBUFFER, this._renderBuffer);
+		this._gl.renderbufferStorage(this._gl.RENDERBUFFER, this._gl.RGBA8, w, h);
+		this._gl.bindRenderbuffer(this._gl.RENDERBUFFER, null);
+
+		// Id texture (COLOR_ATTACHMENT1): immutable storage, so recreate it and
+		// re-attach the new texture to the same framebuffer slot.
+		this._gl.deleteTexture(this._idTexture);
+		this._idTexture = this.assertCreated(
+			this._gl.createTexture(),
+			"id texture"
+		);
+		this._gl.activeTexture(this._gl.TEXTURE0);
+		this._gl.bindTexture(this._gl.TEXTURE_2D, this._idTexture);
+		this._gl.texStorage2D(this._gl.TEXTURE_2D, 1, this._gl.R16I, w, h);
+		this._gl.framebufferTexture2D(
+			this._gl.FRAMEBUFFER,
+			this._gl.COLOR_ATTACHMENT1,
+			this._gl.TEXTURE_2D,
+			this._idTexture,
+			0
+		);
+		this._gl.bindTexture(this._gl.TEXTURE_2D, null);
+
+		// Depth renderbuffer: resizable in place.
+		this._gl.bindRenderbuffer(this._gl.RENDERBUFFER, this._depthBuffer);
+		this._gl.renderbufferStorage(
+			this._gl.RENDERBUFFER,
+			this._gl.DEPTH_COMPONENT16,
+			w,
+			h
+		);
+		this._gl.bindRenderbuffer(this._gl.RENDERBUFFER, null);
+
+		this._gl.bindFramebuffer(this._gl.FRAMEBUFFER, null);
+		this._gl.viewport(0, 0, w, h);
+	}
+
+	/**
 	 * Binds the buffers and material associated with the scene object so it can be rendered
 	 *
 	 * @param obj - The scene object to bind
