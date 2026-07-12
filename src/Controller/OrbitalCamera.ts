@@ -1,127 +1,150 @@
 import { App } from "../App/App";
-import { Camera } from "../Renderer/Camera";
 import { Controller } from "./Controller";
-import { vec3, vec2 } from "gl-matrix";
-import {
-	toSphericalCoord,
-	toCatesianCoord,
-} from "../Math/SphericalCoordinates";
+import { vec2, vec3, quat } from "gl-matrix";
+
+// The point the camera orbits around and keeps aimed at.
+const TARGET = vec3.fromValues(0, 0, 0);
+// How close the camera may zoom toward the target.
+const MIN_RADIUS = 0.05;
 
 /**
- * Orbital camera controls: drag the mouse to rotate the camera around the
- * origin (keeping it aimed at the origin), and scroll to move closer or
- * further away. Positions are tracked in spherical coordinates so the camera
- * stays on a sphere around the target.
+ * Trackball orbital controls: drag to rotate the camera around the target, and
+ * scroll to move closer or further away.
+ *
+ * Rather than tracking a latitude/longitude on a sphere (which has a singularity
+ * at the poles - the camera flips when it points straight up or down), each drag
+ * applies an incremental rotation about the camera's *own* right and up axes.
+ * Both the camera's orientation and its position are rotated by that same delta,
+ * so the camera keeps looking at the target while its "up" carries along freely.
+ * This lets the view roll continuously over the top and bottom with no flip.
  */
 class OrbitalControls implements Controller {
-	private _mouseDownPoint: vec2 | undefined;
-	private _mouseDownCamPos: vec3 | undefined;
-	private _sensitivity = 1.3;
+	private _lastPointer: vec2 | undefined;
+	// Radians of rotation per full screen-width (or height) of drag.
+	private _rotationSensitivity = Math.PI;
+	// Fraction of the current distance added/removed per wheel notch.
+	private _zoomSensitivity = 0.1;
 
 	/**
-	 * Moves the camera closer to or further from the origin.
+	 * Begins a drag by recording where the pointer went down.
+	 *
+	 * @param app - The application being interacted with
+	 * @param event - The mouse event being fired
+	 */
+	onMouseDown(app: App, event: MouseEvent): void {
+		this._lastPointer = this.pointer(event);
+	}
+
+	/**
+	 * Ends the drag.
+	 */
+	onMouseUp(): void {
+		this._lastPointer = undefined;
+	}
+
+	/**
+	 * While dragging, rotates the camera around the target by the pointer's
+	 * movement since the last frame.
+	 *
+	 * @param app - The application being interacted with
+	 * @param event - The mouse event being fired
+	 */
+	onMouseMove(app: App, event: MouseEvent): void {
+		if (!this._lastPointer || !(event.target instanceof Element)) {
+			return;
+		}
+
+		const current = this.pointer(event);
+		const dx = current[0] - this._lastPointer[0];
+		const dy = current[1] - this._lastPointer[1];
+		this._lastPointer = current;
+
+		const camera = app.scene.camera;
+		const orientation = camera.orientation;
+
+		// The camera's current up and right axes, in world space. Rotating about
+		// these (rather than a fixed world up) is what keeps the controls behaving
+		// the same no matter how the camera is oriented - including upside down.
+		const camUp = vec3.transformQuat(
+			vec3.create(),
+			vec3.fromValues(0, 1, 0),
+			orientation
+		);
+		const camRight = vec3.transformQuat(
+			vec3.create(),
+			vec3.fromValues(1, 0, 0),
+			orientation
+		);
+
+		// Horizontal drag yaws about the up axis; vertical drag pitches about the
+		// right axis. Negated so the scene follows the cursor.
+		const yaw = -dx * this._rotationSensitivity;
+		const pitch = -dy * this._rotationSensitivity;
+
+		const delta = quat.setAxisAngle(quat.create(), camUp, yaw);
+		const pitchRotation = quat.setAxisAngle(quat.create(), camRight, pitch);
+		quat.multiply(delta, delta, pitchRotation);
+		quat.normalize(delta, delta);
+
+		// Re-orient the camera and swing its position around the target by the
+		// same rotation, so it stays aimed at the target.
+		const newOrientation = quat.multiply(
+			quat.create(),
+			delta,
+			orientation
+		);
+		quat.normalize(newOrientation, newOrientation);
+		camera.orientation = newOrientation;
+
+		const offset = vec3.subtract(
+			vec3.create(),
+			camera.translation,
+			TARGET
+		);
+		vec3.transformQuat(offset, offset, delta);
+		camera.translation = vec3.add(vec3.create(), TARGET, offset);
+	}
+
+	/**
+	 * Moves the camera closer to or further from the target.
 	 *
 	 * @param app - The application being interacted with
 	 * @param event - The wheel event being fired
 	 */
 	onWheel(app: App, event: WheelEvent): void {
 		const camera = app.scene.camera;
-		const camSphericalCoord = toSphericalCoord(camera.translation);
+		const offset = vec3.subtract(
+			vec3.create(),
+			camera.translation,
+			TARGET
+		);
 
-		const zoomDir = event.deltaY < 0 ? -1 : 1;
-		const zoomValue = 0.075;
+		// Scroll up (deltaY < 0) zooms in; scaling the offset keeps the view
+		// direction unchanged, so the camera stays aimed at the target.
+		const factor =
+			event.deltaY < 0
+				? 1 - this._zoomSensitivity
+				: 1 + this._zoomSensitivity;
+		vec3.scale(offset, offset, factor);
 
-		camSphericalCoord.radius += zoomDir * zoomValue;
-		camSphericalCoord.radius = Math.max(0.001, camSphericalCoord.radius);
-		camera.translation = toCatesianCoord(camSphericalCoord);
-	}
-
-	/**
-	 * Initializes rotating the camera
-	 *
-	 * @param app - The application being interacted with
-	 * @param event - The mouse event being fired
-	 */
-	onMouseDown(app: App, event: MouseEvent): void {
-		if (event.target instanceof Element) {
-			const x = (event.clientX / event.target.clientWidth - 0.5) * 2;
-			const y = (1 - event.clientY / event.target.clientHeight - 0.5) * 2;
-			this._mouseDownPoint = vec2.fromValues(x, y);
+		if (vec3.length(offset) < MIN_RADIUS) {
+			vec3.normalize(offset, offset);
+			vec3.scale(offset, offset, MIN_RADIUS);
 		}
-		this._mouseDownCamPos = app.scene.camera.translation;
+
+		camera.translation = vec3.add(vec3.create(), TARGET, offset);
 	}
 
 	/**
-	 * Resets the controller state
+	 * The pointer position as a fraction of the canvas (0..1 across each axis),
+	 * so drag sensitivity is independent of the canvas resolution.
 	 */
-	onMouseUp(): void {
-		this._mouseDownPoint = undefined;
-		this._mouseDownCamPos = undefined;
-	}
-
-	/**
-	 * If the mouse button is being pressed rotate the camera around the origin based on how far the mouse has been dragged.
-	 *
-	 * @param app - The application being interacted with
-	 * @param event - The mouse event being fired
-	 */
-	onMouseMove(app: App, event: MouseEvent): void {
-		if (
-			this._mouseDownPoint &&
-			this._mouseDownCamPos &&
-			event.target instanceof Element
-		) {
-			// get mouse position
-			const x = (event.clientX / event.target.clientWidth - 0.5) * 2;
-			const y = (1 - event.clientY / event.target.clientHeight - 0.5) * 2;
-			const curMousePos = vec2.fromValues(x, y);
-
-			const cam: Camera = app.scene.camera;
-
-			// get orthogonal vectors to camera direction
-			const dir = vec3.create();
-			vec3.sub(dir, vec3.fromValues(0, 0, 0), cam.translation);
-			vec3.normalize(dir, dir);
-
-			const WORLD_UP = vec3.fromValues(0, 1, 0);
-			const right = vec3.create();
-			vec3.cross(right, WORLD_UP, dir);
-			vec3.normalize(right, right);
-
-			const up = vec3.create();
-			vec3.cross(up, dir, right);
-			vec3.normalize(up, up);
-
-			// get current mouse drag vector
-			const mouseDirVec = vec2.create();
-			vec2.sub(mouseDirVec, curMousePos, this._mouseDownPoint);
-
-			const newCamPosition = vec3.create();
-
-			// move in theta direction
-			const moveRightVec = vec3.fromValues(0, 0, 0);
-			vec3.scale(moveRightVec, right, mouseDirVec[0] * this._sensitivity);
-			vec3.add(newCamPosition, this._mouseDownCamPos, moveRightVec);
-
-			// move in phi direction
-			const moveUpVec = vec3.fromValues(0, 0, 0);
-			vec3.scale(moveUpVec, up, mouseDirVec[1] * -this._sensitivity);
-			vec3.add(newCamPosition, newCamPosition, moveUpVec);
-
-			// convert to spherical coord and lock radius
-			const SphericalCoord = toSphericalCoord(newCamPosition);
-			const radiusToOrigin = vec3.dist(
-				cam.translation,
-				vec3.fromValues(0, 0, 0)
-			);
-			SphericalCoord.radius = radiusToOrigin;
-
-			// convert back to cartesian coord
-			const cartesianCoord = toCatesianCoord(SphericalCoord);
-			cam.translation = cartesianCoord;
-
-			cam.lookAt(vec3.fromValues(0, 0, 0));
-		}
+	private pointer(event: MouseEvent): vec2 {
+		const element = event.target as Element;
+		return vec2.fromValues(
+			event.clientX / element.clientWidth,
+			event.clientY / element.clientHeight
+		);
 	}
 }
 

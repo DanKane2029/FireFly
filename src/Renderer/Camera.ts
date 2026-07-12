@@ -1,6 +1,5 @@
-import { vec3, mat4, quat, glMatrix, mat3 } from "gl-matrix";
+import { vec3, mat4, mat3, quat, glMatrix } from "gl-matrix";
 import { UpdateFunction } from "./UpdateFunction";
-import { rotationMatrixToEulerAngles } from "../Math/Conversion";
 
 /**
  * Used to view objects in a scene and describes the perspective of the view on the screen.
@@ -12,14 +11,18 @@ import { rotationMatrixToEulerAngles } from "../Math/Conversion";
  *   frustum.
  * Both are cached and only recomputed when an input changes, so reading them
  * every frame does not allocate.
+ *
+ * Orientation is stored as a quaternion rather than Euler angles. A quaternion
+ * can represent any rotation without the gimbal-lock singularity Euler angles
+ * hit when the camera points straight up or down, which is what lets the orbital
+ * controls swing smoothly over the poles.
  */
 class Camera {
 	private _aspectRatio: number;
 	private _perspectiveMatrix: mat4;
 	private _viewMatrix: mat4;
 	private _translation: vec3;
-	private _rotation: vec3;
-	private _transform: mat4;
+	private _orientation: quat;
 	private _near: number;
 	private _far: number;
 	private _fovy: number;
@@ -29,8 +32,7 @@ class Camera {
 	private _perspectiveDirty: boolean;
 	private _viewDirty: boolean;
 
-	// Reused scratch objects so recomputing a matrix never allocates.
-	private _scratchQuat: quat;
+	// Reused scratch object so recomputing the view matrix never allocates.
 	private _scratchTransform: mat4;
 
 	/**
@@ -49,13 +51,11 @@ class Camera {
 		this._perspectiveMatrix = mat4.create();
 		this._translation = vec3.fromValues(0, 0, 0);
 		this._viewMatrix = mat4.create();
-		this._rotation = [0, 0, 0];
-		this._transform = mat4.create();
+		this._orientation = quat.create(); // identity: looking down -Z
 		this._updateFunction = () => undefined;
 
 		this._perspectiveDirty = true;
 		this._viewDirty = true;
-		this._scratchQuat = quat.create();
 		this._scratchTransform = mat4.create();
 	}
 
@@ -99,15 +99,12 @@ class Camera {
 	 */
 	get viewMatrix(): mat4 {
 		if (this._viewDirty) {
-			quat.fromEuler(
-				this._scratchQuat,
-				this._rotation[0],
-				this._rotation[1],
-				this._rotation[2]
-			);
+			// The camera's world transform places it in the scene; the view
+			// matrix is that transform inverted (it moves the world into the
+			// camera's frame).
 			mat4.fromRotationTranslation(
 				this._scratchTransform,
-				this._scratchQuat,
+				this._orientation,
 				this._translation
 			);
 			mat4.invert(this._viewMatrix, this._scratchTransform);
@@ -132,94 +129,73 @@ class Camera {
 	}
 
 	/**
-	 * Gets the rotation of the camera in ZYX Euler angles
+	 * Gets the camera's orientation quaternion (its local->world rotation).
 	 */
-	get rotation(): vec3 {
-		return this._rotation;
+	get orientation(): quat {
+		return this._orientation;
 	}
 
 	/**
-	 * Sets the rotation of the camera in ZYX Euler angles
+	 * Sets the camera's orientation quaternion.
 	 */
-	set rotation(vec: vec3) {
-		this._rotation = vec;
+	set orientation(orientation: quat) {
+		this._orientation = orientation;
 		this._viewDirty = true;
 	}
 
 	/**
-	 * Rotates the camera
+	 * Orients the camera so that it looks at a target position.
 	 *
-	 * @param dx - The amount to rotate around the x axis in degrees
-	 * @param dy - The amount to rotate around the y axis in degrees
-	 * @param dz - The amount to rotate around the z axis in degrees
-	 */
-	rotate(dx: number, dy: number, dz: number) {
-		this._rotation = [
-			this._rotation[0] + dx,
-			this._rotation[1] + dy,
-			this._rotation[2] + dz,
-		];
-		this._viewDirty = true;
-	}
-
-	/**
-	 * Gets and calculates the transform matrix for the camera
-	 */
-	get transform(): mat4 {
-		const r: quat = quat.fromEuler(
-			quat.create(),
-			this._rotation[0],
-			this._rotation[1],
-			this._rotation[2]
-		);
-		return mat4.fromRotationTranslation(
-			this._transform,
-			r,
-			this.translation
-		);
-	}
-
-	/**
-	 * Rotates the camera so that the target position is center on screen
+	 * Builds an orthonormal camera basis (right, up, backward) and stores it as
+	 * the orientation quaternion. The camera looks down its local -Z, so local
+	 * +Z ("backward") points from the target back to the camera.
 	 *
-	 * @param targetPos - The position the camera will look at and will be center on the screen
-	 * @returns - The forward, right, and up vectors that describe the new camera orientation
+	 * @param targetPos - The world position to aim at (centered on screen).
+	 * @param up - A hint for which way is up. If it happens to be parallel to
+	 * the view direction (looking straight along it), a perpendicular axis is
+	 * substituted so the basis never degenerates.
 	 */
-	lookAt(targetPos: vec3): { dir: vec3; right: vec3; up: vec3 } {
-		const dir = vec3.create();
-		vec3.sub(dir, this.translation, targetPos);
-		vec3.normalize(dir, dir);
+	lookAt(targetPos: vec3, up: vec3 = vec3.fromValues(0, 1, 0)): void {
+		const backward = vec3.create();
+		vec3.subtract(backward, this._translation, targetPos);
+		if (vec3.length(backward) < 1e-6) {
+			// Camera sits on the target; there is no direction to aim.
+			return;
+		}
+		vec3.normalize(backward, backward);
 
-		const WORLD_UP = vec3.fromValues(0, 1, 0);
 		const right = vec3.create();
-		vec3.cross(right, dir, WORLD_UP);
+		vec3.cross(right, up, backward);
+		if (vec3.length(right) < 1e-6) {
+			// up is parallel to the view direction - pick any perpendicular axis.
+			vec3.cross(right, vec3.fromValues(1, 0, 0), backward);
+			if (vec3.length(right) < 1e-6) {
+				vec3.cross(right, vec3.fromValues(0, 0, 1), backward);
+			}
+		}
 		vec3.normalize(right, right);
 
-		const up = vec3.create();
-		vec3.cross(up, dir, right);
-		vec3.normalize(up, up);
+		const trueUp = vec3.create();
+		vec3.cross(trueUp, backward, right);
+		vec3.normalize(trueUp, trueUp);
 
-		const newRotMat = mat3.fromValues(
+		// Columns [right, up, backward] form the local->world rotation matrix.
+		const basis = mat3.fromValues(
 			right[0],
 			right[1],
 			right[2],
-			up[0],
-			up[1],
-			up[2],
-			dir[0],
-			dir[1],
-			dir[2]
+			trueUp[0],
+			trueUp[1],
+			trueUp[2],
+			backward[0],
+			backward[1],
+			backward[2]
 		);
 
-		const rotVec: vec3 = rotationMatrixToEulerAngles(newRotMat);
-
-		this.rotation = vec3.fromValues(
-			-(rotVec[0] * 180) / Math.PI + 180,
-			(rotVec[1] * 180) / Math.PI + 180,
-			(rotVec[2] * 180) / Math.PI
-		);
-
-		return { dir, right, up };
+		const orientation = quat.create();
+		quat.fromMat3(orientation, basis);
+		quat.normalize(orientation, orientation);
+		this.orientation = orientation;
 	}
 
 	/**
