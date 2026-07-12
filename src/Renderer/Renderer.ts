@@ -687,7 +687,17 @@ class Renderer {
 	}
 
 	/**
-	 * Clears the frame buffer to a blank screen of the clear color.
+	 * Clears both render targets at the start of a frame.
+	 *
+	 * First the offscreen framebuffer's attachments are reset: the color image
+	 * (attachment 0) and the picking id-texture (attachment 1, cleared to -1 =
+	 * "no object here"). Then the visible canvas (the default framebuffer) is
+	 * cleared to the background color along with its depth buffer.
+	 *
+	 * The canvas clear is essential: the WebGL context is created with
+	 * preserveDrawingBuffer, so the browser does NOT clear it automatically
+	 * between frames. Without this, each frame would draw on top of the last
+	 * (smearing), and stale depth values would block new fragments.
 	 */
 	clear(): void {
 		this._gl.bindFramebuffer(this._gl.FRAMEBUFFER, this._frameBuffer);
@@ -702,6 +712,9 @@ class Renderer {
 			new Int16Array([-1, -1, -1, -1])
 		);
 		this._gl.bindFramebuffer(this._gl.FRAMEBUFFER, null);
+
+		// Clear the visible canvas (default framebuffer) every frame.
+		this._gl.clear(this._gl.COLOR_BUFFER_BIT | this._gl.DEPTH_BUFFER_BIT);
 	}
 
 	/**
