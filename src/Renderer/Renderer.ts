@@ -100,11 +100,12 @@ class Renderer {
 		// set up framebuffer
 		this._gl.bindFramebuffer(this._gl.FRAMEBUFFER, this._frameBuffer);
 
-		// set up color buffer
+		// set up color buffer (RGBA8: full 8 bits/channel, and a same-format
+		// blit target as the RGBA8 canvas)
 		this._gl.bindRenderbuffer(this._gl.RENDERBUFFER, this._renderBuffer);
 		this._gl.renderbufferStorage(
 			this._gl.RENDERBUFFER,
-			this._gl.RGBA4,
+			this._gl.RGBA8,
 			this._canvasSize[0],
 			this._canvasSize[1]
 		);
@@ -159,10 +160,10 @@ class Renderer {
 
 		const status = this._gl.checkFramebufferStatus(this._gl.FRAMEBUFFER);
 		if (status !== this._gl.FRAMEBUFFER_COMPLETE) {
-			console.warn(
+			console.error(
 				`Render framebuffer is incomplete (status 0x${status.toString(
 					16
-				)}); rendering and picking may not work.`
+				)}); nothing will be drawn to the canvas.`
 			);
 		}
 
