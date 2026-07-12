@@ -1,4 +1,4 @@
-import { vec4, mat4, vec3, vec2 } from "gl-matrix";
+import { vec4, mat4, mat3, vec3, vec2 } from "gl-matrix";
 
 import {
 	VertexBuffer,
@@ -148,8 +148,6 @@ class Renderer {
 	drawScene(scene: Scene): void {
 		this.clear();
 
-		scene.updateFunction();
-
 		this.preprocessScene(scene);
 
 		const cam: Camera = scene.camera;
@@ -171,6 +169,14 @@ class Renderer {
 
 			this.setUniform4Mat(shaderProgram, "u_transform", obj.transform);
 			this.setUniform4Mat(shaderProgram, "u_view", cam.viewMatrix);
+
+			// Normals need the inverse-transpose of the model matrix so they
+			// stay perpendicular to the surface under non-uniform scaling.
+			const normalMatrix = mat3.normalFromMat4(
+				mat3.create(),
+				obj.transform
+			);
+			this.setUniform3Mat(shaderProgram, "u_normalMatrix", normalMatrix);
 
 			// setup lights
 			this.setUniform1i(
@@ -200,30 +206,6 @@ class Renderer {
 			);
 			this.unbindSceneObject();
 		});
-
-		this._gl.bindFramebuffer(this._gl.FRAMEBUFFER, this._frameBuffer);
-		this._gl.readBuffer(this._gl.COLOR_ATTACHMENT0);
-
-		const format = this._gl.getParameter(
-			this._gl.IMPLEMENTATION_COLOR_READ_FORMAT
-		);
-		const type = this._gl.getParameter(
-			this._gl.IMPLEMENTATION_COLOR_READ_TYPE
-		);
-
-		const data = new Float32Array(4);
-
-		this._gl.readPixels(
-			this._canvasSize[0] * 0.5,
-			this._canvasSize[1] * 0.45,
-			1,
-			1,
-			format,
-			type,
-			data
-		);
-
-		console.log(data);
 
 		this._gl.bindRenderbuffer(this._gl.RENDERBUFFER, null);
 	}
@@ -457,6 +439,25 @@ class Renderer {
 			name
 		);
 		this._gl.uniformMatrix4fv(location, false, mat4);
+	}
+
+	/**
+	 * Sets a mat3 uniform in a shader program
+	 *
+	 * @param shaderProgram - The shader program to set the mat3 in
+	 * @param name - The name of the mat3 uniform
+	 * @param matrix - The value of the mat3 uniform
+	 */
+	setUniform3Mat(
+		shaderProgram: ShaderProgram,
+		name: string,
+		matrix: mat3
+	): void {
+		const location: WebGLUniformLocation = this._gl.getUniformLocation(
+			shaderProgram.program,
+			name
+		);
+		this._gl.uniformMatrix3fv(location, false, matrix);
 	}
 
 	/**

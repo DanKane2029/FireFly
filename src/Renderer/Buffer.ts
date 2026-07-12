@@ -74,20 +74,6 @@ class VertexBuffer {
 	set created(created: boolean) {
 		this._created = created;
 	}
-
-	/**
-	 * Creates a clone of the vertex buffer object
-	 *
-	 * @returns - The cloned vertex buffer object
-	 */
-	clone(): VertexBuffer {
-		const clonedVertexLayout: VertexBufferLayout = this.layout.clone();
-		const clonedVertexBuffer = new VertexBuffer(
-			this.vertices,
-			clonedVertexLayout
-		);
-		return clonedVertexBuffer;
-	}
 }
 
 /**
@@ -159,16 +145,6 @@ class IndexBuffer {
 	set created(created: boolean) {
 		this._created = created;
 	}
-
-	/**
-	 * Creates a clone of the index buffer object
-	 *
-	 * @returns - The cloned index buffer object
-	 */
-	clone(): IndexBuffer {
-		const clonedIndexBuffer = new IndexBuffer(this.indices);
-		return clonedIndexBuffer;
-	}
 }
 
 /**
@@ -224,17 +200,6 @@ class VertexBufferLayout {
 	 */
 	set created(created: boolean) {
 		this._created = created;
-	}
-
-	/**
-	 * Creates a clone of the vertex buffer layout object
-	 *
-	 * @returns - The cloned vertex buffer layout object
-	 */
-	clone(): VertexBufferLayout {
-		const clonedVertexBufferLayout: VertexBufferLayout =
-			new VertexBufferLayout(this.layout);
-		return clonedVertexBufferLayout;
 	}
 }
 

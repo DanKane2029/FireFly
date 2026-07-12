@@ -30,18 +30,25 @@ layout(location = 1) out int objectId;
 
 
 void main(void) {
+	// Interpolation across the triangle denormalizes the normal, so restore
+	// unit length before using it in the lighting dot products.
+	vec3 normal = normalize(v_normal);
+
+	// Accumulate Lambert (diffuse) contribution from every light. Both the
+	// surface position and the light positions are in world space.
 	float totalLightValue = 0.0;
 	for (int i = 0; i < MAX_LIGHTS; i++) {
 		if (i >= u_numLights) {
 			break;
 		}
 		vec3 lightVec = normalize(u_lightList[i].pos - v_position.xyz);
-		float lightVal = max(dot(lightVec, v_normal), 0.0);
+		float lightVal = max(dot(lightVec, normal), 0.0);
 		totalLightValue += lightVal;
 	}
-	
+
 	vec3 lightColor = u_color.xyz * totalLightValue;
 	fragColor = vec4(lightColor + u_ambientLight, 1);
-	// fragColor = vec4(float(v_objectId)/20.0, 0, 0, 1);
+
+	// Second render target: write this object's id for GPU picking.
 	objectId = v_objectId;
 }
