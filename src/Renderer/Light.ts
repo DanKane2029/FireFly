@@ -30,20 +30,4 @@ class PointLight {
 	}
 }
 
-/**
- * A light source the radiates in a single direction
- */
-class DirectionalLight {
-	private _lightDirection: vec3;
-
-	/**
-	 * Creates a new directional light source object
-	 *
-	 * @param lightDirection - The direction the light source radiates from
-	 */
-	constructor(lightDirection: vec3) {
-		this._lightDirection = lightDirection;
-	}
-}
-
-export { PointLight, DirectionalLight };
+export { PointLight };

@@ -2,7 +2,7 @@ import { Controller } from "./Controller";
 import { Scene } from "../Renderer/Scene";
 import { SceneObject } from "../Renderer/SceneObject";
 import { cube } from "../SceneObjects/Cube";
-import { vec2, vec3 } from "gl-matrix";
+import { vec2 } from "gl-matrix";
 import { App } from "../App/App";
 
 /**
@@ -10,8 +10,6 @@ import { App } from "../App/App";
  */
 class AddCubeController implements Controller {
 	private _mouseDownPoint: vec2 | undefined;
-	private _mouseDownCamPos: vec3 | undefined;
-	private _sensitivity = 0.5;
 	private _cube: SceneObject | undefined;
 
 	/**
@@ -26,7 +24,6 @@ class AddCubeController implements Controller {
 			const y = (1 - event.clientY / event.target.clientHeight - 0.5) * 2;
 			this._mouseDownPoint = vec2.fromValues(x, y);
 		}
-		this._mouseDownCamPos = scene.camera.translation;
 
 		if (!this._cube) {
 			this._cube = cube.clone();
@@ -52,7 +49,6 @@ class AddCubeController implements Controller {
 	 */
 	onMouseUp(): void {
 		this._mouseDownPoint = undefined;
-		this._mouseDownCamPos = undefined;
 		this._cube = undefined;
 	}
 

@@ -23,17 +23,14 @@ class SceneObject {
 	properties: Record<string, unknown>;
 
 	/**
-	 * Creats a new scene object
+	 * Creates a new scene object
 	 *
-	 * @param vertexBuffer - The vertex buffer that holds the vertex information of the scene object
-	 * @param indexBuffer - The index buffer that holds the index information of teh scene object
-	 * @param material - The material of the scene object
+	 * @param mesh - The mesh that holds the geometry (vertex + index buffers) of the scene object
+	 * @param material - The material (shader program + properties) of the scene object
 	 */
 	constructor(mesh: Mesh, material: Material) {
 		this._id = IdManager.getId();
 		this._mesh = mesh;
-		// this._vertexBuffer = vertexBuffer;
-		// this._indexBuffer = indexBuffer;
 		this._material = material;
 		this._translation = [0, 0, 0];
 		this._scale = [1, 1, 1];
@@ -147,17 +144,6 @@ class SceneObject {
 			this._rotation[2] + dz,
 		];
 	}
-
-	/**
-	 * Updates the vertex and index buffer of the scene object
-	 *
-	 * @param indexBuffer - The updated index buffer of the new geometry
-	 * @param vertexBuffer - The updated vertex buffer of the new geometry
-	 */
-	// updateGeometry(indexBuffer: IndexBuffer, vertexBuffer: VertexBuffer): void {
-	// 	this._mesh.indexBuffer = indexBuffer;
-	// 	this._mesh.vertexBuffer = vertexBuffer;
-	// }
 
 	/**
 	 * Gets and calculates the tranform matrix for the scene object

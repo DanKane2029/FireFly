@@ -1,5 +1,5 @@
 import { ParameterizedGeometry } from "./ParameterizedGeometry";
-import { vec3, vec2 } from "gl-matrix";
+import { vec3 } from "gl-matrix";
 
 import { Mesh } from "./Mesh";
 import { Vertex } from "./Vertex";
@@ -37,36 +37,18 @@ class Box extends ParameterizedGeometry {
 
 		const vertexBufferLayout = new VertexBufferLayout([
 			{
-				name: "position",
+				name: "a_position",
 				size: 3,
 				type: VertexTypes.FLOAT,
 				normalized: false,
 			},
 			{
-				name: "normal",
+				name: "a_normal",
 				size: 3,
 				type: VertexTypes.FLOAT,
 				normalized: true,
 			},
 		]);
-
-		// TODO: add texture coords to vertex list
-		const textureCoordList: vec2[] = [
-			[1.0, 0.333333],
-			[1.0, 0.666667],
-			[0.666667, 0.666667],
-			[0.666667, 0.333333],
-			[0.666667, 0.0],
-			[0.0, 0.333333],
-			[0.0, 0.0],
-			[0.333333, 0.0],
-			[0.333333, 1.0],
-			[0.0, 1.0],
-			[0.0, 0.666667],
-			[0.333333, 0.333333],
-			[0.333333, 0.666667],
-			[1.0, 0.0],
-		];
 
 		const vertexList: Vertex[] = [
 			// back face

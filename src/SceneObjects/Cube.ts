@@ -1,15 +1,6 @@
-import {
-	VertexBuffer,
-	IndexBuffer,
-	VertexBufferLayout,
-	VertexTypes,
-} from "../Renderer/Buffer";
 import { Shader, ShaderProgram, ShaderType } from "../Renderer/Shader";
 import { Material, MaterialPropertyType } from "../Renderer/Material";
 import { SceneObject } from "../Renderer/SceneObject";
-
-import VertShader from "../Shaders/Basic.vert.glsl";
-import FragShader from "../Shaders/Basic.frag.glsl";
 
 import VertLightingShader from "../Shaders/Lighting.vert.glsl";
 import FragLightingShader from "../Shaders/Lighting.frag.glsl";
@@ -40,7 +31,7 @@ const shaderProgram: ShaderProgram = new ShaderProgram(
 const material: Material = new Material("Cube Material", shaderProgram, [
 	{
 		type: MaterialPropertyType.VEC4,
-		name: "color",
+		name: "u_color",
 		value: [0.86, 0.34, 0.56, 1],
 	},
 ]);
