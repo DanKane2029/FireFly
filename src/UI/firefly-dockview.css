@@ -1,0 +1,28 @@
+/*
+ * Aligns the dockview chrome (tabs, borders, drop zones, resize handles) with
+ * the Firefly palette. Imported after dockview's base stylesheet so these
+ * variables override the abyss theme's defaults; kept in sync with the Material
+ * UI theme in theme.ts.
+ */
+.dockview-theme-abyss {
+	/* backgrounds */
+	--dv-group-view-background-color: #0f131a; /* panel surface */
+	--dv-tabs-and-actions-container-background-color: #05070a; /* tab strip = ink */
+	--dv-activegroup-visiblepanel-tab-background-color: #0f131a; /* active tab = surface */
+	--dv-inactivegroup-visiblepanel-tab-background-color: #05070a;
+
+	/* text */
+	--dv-activegroup-visiblepanel-tab-color: #f5f6f7; /* active tab = white */
+	--dv-inactivegroup-visiblepanel-tab-color: #8b93a0; /* inactive tab = muted */
+
+	/* borders / dividers */
+	--dv-separator-border: #262c35;
+	--dv-tab-divider-color: #262c35;
+	--dv-scrollbar-background-color: #262c35;
+
+	/* accent: firefly glow on resize handles and drop targets */
+	--dv-active-sash-color: #d9ff4d;
+	--dv-paneview-active-outline-color: #d9ff4d;
+	--dv-drag-over-background-color: rgba(217, 255, 77, 0.12);
+	--dv-drag-over-border-color: #d9ff4d;
+}

@@ -1,6 +1,7 @@
 import { DockviewReact } from "dockview-react";
 import { DockviewReadyEvent, themeAbyss } from "dockview";
 import "dockview-core/dist/styles/dockview.css";
+import "./firefly-dockview.css";
 import { PANEL_COMPONENTS } from "./panels/registry";
 
 /**

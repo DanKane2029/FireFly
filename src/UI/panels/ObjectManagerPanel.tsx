@@ -1,10 +1,20 @@
+import {
+	Box,
+	List,
+	ListItem,
+	ListItemButton,
+	ListItemText,
+	IconButton,
+	Typography,
+} from "@mui/material";
+import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import { useEditorStore } from "../EngineContext";
 
 /**
  * Lists the objects currently in the scene. Clicking a row selects that object
- * (which the Inspector then edits); the ✕ button removes it. Deliberately
- * minimal - its job is to prove the React <-> imperative-Scene state bridge
- * end to end and to serve as a template for richer object management later.
+ * (which the Inspector then edits); the trash button removes it. Built from
+ * Material UI list components so it inherits the Firefly theme, and kept
+ * intentionally minimal as a template for richer object management later.
  */
 export function ObjectManagerPanel() {
 	const app = useEditorStore();
@@ -22,53 +32,40 @@ export function ObjectManagerPanel() {
 	};
 
 	return (
-		<div
-			style={{
-				height: "100%",
-				overflow: "auto",
-				font: "13px sans-serif",
-			}}
-		>
-			{objects.length === 0 && (
-				<div style={{ padding: 8, opacity: 0.6 }}>
+		<Box sx={{ height: "100%", overflow: "auto", bgcolor: "background.paper" }}>
+			{objects.length === 0 ? (
+				<Typography variant="body2" color="text.secondary" sx={{ p: 1.5 }}>
 					No objects in the scene.
-				</div>
-			)}
-			{objects.map((obj) => {
-				const selected = obj.id === app.selectedId;
-				return (
-					<div
-						key={obj.id}
-						onClick={() => app.select(obj.id)}
-						style={{
-							display: "flex",
-							justifyContent: "space-between",
-							alignItems: "center",
-							padding: "4px 8px",
-							cursor: "pointer",
-							background: selected ? "#0a84ff" : "transparent",
-							color: selected ? "#fff" : "inherit",
-						}}
-					>
-						<span>{obj.name || `Object #${obj.id}`}</span>
-						<button
-							onClick={(event) => {
-								event.stopPropagation();
-								remove(obj.id);
-							}}
-							title="Remove"
-							style={{
-								background: "none",
-								border: "none",
-								color: "inherit",
-								cursor: "pointer",
-							}}
+				</Typography>
+			) : (
+				<List dense disablePadding>
+					{objects.map((obj) => (
+						<ListItem
+							key={obj.id}
+							disablePadding
+							secondaryAction={
+								<IconButton
+									edge="end"
+									size="small"
+									aria-label="remove"
+									onClick={() => remove(obj.id)}
+								>
+									<DeleteOutlineIcon fontSize="small" />
+								</IconButton>
+							}
 						>
-							✕
-						</button>
-					</div>
-				);
-			})}
-		</div>
+							<ListItemButton
+								selected={obj.id === app.selectedId}
+								onClick={() => app.select(obj.id)}
+							>
+								<ListItemText
+									primary={obj.name || `Object #${obj.id}`}
+								/>
+							</ListItemButton>
+						</ListItem>
+					))}
+				</List>
+			)}
+		</Box>
 	);
 }

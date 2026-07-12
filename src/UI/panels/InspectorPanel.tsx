@@ -1,3 +1,5 @@
+import { ChangeEvent } from "react";
+import { Box, Stack, Typography } from "@mui/material";
 import { useEditorStore } from "../EngineContext";
 import { MaterialProperty, MaterialPropertyType } from "../../Renderer/Material";
 
@@ -18,10 +20,10 @@ function fromHex(hex: string): [number, number, number] {
 
 /**
  * Edits the material of the currently selected object. For now it exposes the
- * `u_color` VEC4 uniform via a color picker; editing it calls
+ * `u_color` VEC4 uniform via a color swatch; editing it calls
  * `Material.setProperty` and notifies the store, so the change shows in the
- * scene immediately. This proves two-way editing and is the template for a
- * fuller material editor later.
+ * scene immediately. Styled with Material UI (the Firefly theme) and meant as
+ * the template for a fuller material editor later.
  */
 export function InspectorPanel() {
 	const app = useEditorStore();
@@ -29,9 +31,9 @@ export function InspectorPanel() {
 
 	if (!object) {
 		return (
-			<div style={{ padding: 8, opacity: 0.6, font: "13px sans-serif" }}>
+			<Typography variant="body2" color="text.secondary" sx={{ p: 1.5 }}>
 				Select an object to edit its material.
-			</div>
+			</Typography>
 		);
 	}
 
@@ -41,19 +43,24 @@ export function InspectorPanel() {
 	);
 
 	return (
-		<div style={{ padding: 8, font: "13px sans-serif" }}>
-			<div style={{ marginBottom: 8, opacity: 0.7 }}>
+		<Box sx={{ p: 1.5, height: "100%", bgcolor: "background.paper" }}>
+			<Typography variant="caption" color="text.secondary">
 				{object.name || `Object #${object.id}`} — {object.material.name}
-			</div>
+			</Typography>
+
 			{colorProp ? (
-				<label
-					style={{ display: "flex", alignItems: "center", gap: 8 }}
+				<Stack
+					direction="row"
+					spacing={1}
+					alignItems="center"
+					sx={{ mt: 1.5 }}
 				>
-					Color
-					<input
+					<Typography variant="body2">Color</Typography>
+					<Box
+						component="input"
 						type="color"
 						value={toHex(colorProp.value as ArrayLike<number>)}
-						onChange={(event) => {
+						onChange={(event: ChangeEvent<HTMLInputElement>) => {
 							const [r, g, b] = fromHex(event.target.value);
 							const current = colorProp.value as ArrayLike<number>;
 							const alpha = current[3] ?? 1;
@@ -65,13 +72,27 @@ export function InspectorPanel() {
 							]);
 							app.notifyChanged();
 						}}
+						sx={{
+							width: 40,
+							height: 28,
+							p: 0,
+							border: 1,
+							borderColor: "divider",
+							borderRadius: 1,
+							background: "none",
+							cursor: "pointer",
+						}}
 					/>
-				</label>
+				</Stack>
 			) : (
-				<div style={{ opacity: 0.6 }}>
+				<Typography
+					variant="body2"
+					color="text.secondary"
+					sx={{ mt: 1.5 }}
+				>
 					This material has no editable color.
-				</div>
+				</Typography>
 			)}
-		</div>
+		</Box>
 	);
 }

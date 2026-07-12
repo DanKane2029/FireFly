@@ -38,6 +38,10 @@
 		"webpack-dev-server": "^4.9.3"
 	},
 	"dependencies": {
+		"@emotion/react": "^11.14.0",
+		"@emotion/styled": "^11.14.1",
+		"@mui/icons-material": "^5.18.0",
+		"@mui/material": "^5.18.0",
 		"dockview": "^7.0.2",
 		"dockview-react": "^7.0.2",
 		"gl-matrix": "^3.4.3",

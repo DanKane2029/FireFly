@@ -1,7 +1,9 @@
 import { createRoot } from "react-dom/client";
+import { ThemeProvider, CssBaseline } from "@mui/material";
 import { App } from "./App/App";
 import { EngineProvider } from "./UI/EngineContext";
 import { Editor } from "./UI/Editor";
+import { fireflyTheme } from "./UI/theme";
 import "./style.css";
 
 // The persistent engine: owns the Scene and lives for the whole session. Panels
@@ -14,7 +16,10 @@ if (container === null) {
 }
 
 createRoot(container).render(
-	<EngineProvider app={app}>
-		<Editor />
-	</EngineProvider>
+	<ThemeProvider theme={fireflyTheme}>
+		<CssBaseline />
+		<EngineProvider app={app}>
+			<Editor />
+		</EngineProvider>
+	</ThemeProvider>
 );
