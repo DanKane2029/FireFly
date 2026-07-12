@@ -28,6 +28,7 @@ class AddCubeController implements Controller {
 			this._cube = cube.clone();
 			this._cube.scale = [0.1, 0.1, 0.1];
 			app.scene.addObject(this._cube);
+			app.notifyChanged();
 		}
 	}
 
@@ -41,6 +42,7 @@ class AddCubeController implements Controller {
 		testCube.translation = [0, 0, 0];
 		testCube.scale = [0.05, 0.05, 0.05];
 		app.scene.addObject(testCube);
+		app.notifyChanged();
 	}
 
 	/**

@@ -4,8 +4,10 @@
 		"strict": true,
 		"module": "es6",
 		"target": "es6",
+		"jsx": "react-jsx",
 		"allowJs": true,
 		"moduleResolution": "node",
+		"esModuleInterop": true,
 		"sourceMap": true
 	}
 }
