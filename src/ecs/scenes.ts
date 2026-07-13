@@ -1,7 +1,8 @@
 import { vec3, vec4 } from "gl-matrix";
 import { World } from "./World";
-import { createTransform } from "./components/Transform";
+import { Transform, createTransform } from "./components/Transform";
 import { Spin } from "./components/Spin";
+import { PointLight } from "./components/PointLight";
 import {
 	sphereMesh,
 	bunnyMesh,
@@ -16,6 +17,18 @@ import {
  * object factories - the geometry and materials are the same, but they are now
  * attached to entities as components instead of bundled into SceneObjects.
  */
+
+/**
+ * The lighting rig every test scene shares: one point light off to the right and
+ * in front. A light is just an entity - a Transform for where it is, and the
+ * PointLight tag to say what it is. It has no mesh, so it lights the scene
+ * without being drawn.
+ */
+export function spawnDefaultLights(world: World): void {
+	const light = world.create();
+	world.add(light, Transform, createTransform({ translation: [5, 0, 10] }));
+	world.add(light, PointLight, {});
+}
 
 /** A snowman built from spheres. Every ball shares one sphere mesh. */
 export function spawnSnowman(world: World): void {

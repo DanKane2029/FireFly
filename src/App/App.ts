@@ -8,14 +8,18 @@ import { AddCubeController } from "../Controller/AddCube";
 import { OrbitalControls } from "../Controller/OrbitalCamera";
 import { SelectObjectController } from "../Controller/SelectObject";
 
-import { PointLight } from "../Renderer/Light";
 import { vec2, vec3, vec4 } from "gl-matrix";
 
 import { World } from "../ecs/World";
 import { Scheduler } from "../ecs/System";
 import { renderSystem } from "../ecs/systems/RenderSystem";
 import { animationSystem } from "../ecs/systems/AnimationSystem";
-import { spawnSnowman, spawnBunny, spawnDragon } from "../ecs/scenes";
+import {
+	spawnSnowman,
+	spawnBunny,
+	spawnDragon,
+	spawnDefaultLights,
+} from "../ecs/scenes";
 
 /**
  * The selectable test scenes, each a function that populates the ECS world with
@@ -44,7 +48,6 @@ const SCENES: Record<string, (world: World) => void> = {
 class App {
 	private _world: World;
 	private _camera: Camera;
-	private _lights: PointLight[];
 	private _ambientLight: vec3;
 	private _backgroundColor: vec4;
 	private _controller: Controller;
@@ -73,7 +76,6 @@ class App {
 		this._world = new World();
 		// Aspect ratio is a placeholder until a canvas is attached / resized.
 		this._camera = new Camera(1, 45, 0.01, 1000);
-		this._lights = [];
 		this._ambientLight = vec3.fromValues(0.1, 0.1, 0.1);
 		this._backgroundColor = [0.2, 0.2, 0.2, 1.0];
 		this._controller = new OrbitalControls();
@@ -99,9 +101,8 @@ class App {
 		this._camera.translation = [0, 0, 2];
 		this._camera.lookAt([0, 0, 0]);
 
-		this._lights.push(new PointLight([5, 0, 10]));
-
 		// Start on the snowman scene; press 2 / 3 to switch to the bunny / dragon.
+		// loadScene spawns the lights along with the scene's entities.
 		this.loadScene("snowman");
 	}
 
@@ -385,6 +386,9 @@ class App {
 	 */
 	loadScene(name: keyof typeof SCENES): void {
 		this._world.clear();
+		// Lights are entities too, so clearing the world unlights it - every scene
+		// spawns the shared rig before its own contents.
+		spawnDefaultLights(this._world);
 		SCENES[name](this._world);
 		this._selectedId = null;
 		this.emit();
@@ -413,7 +417,6 @@ class App {
 			renderer: this._renderer,
 			camera: this._camera,
 			ambientLight: this._ambientLight,
-			lights: this._lights,
 		});
 	}
 }
