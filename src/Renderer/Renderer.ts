@@ -11,7 +11,12 @@ import { Shader, ShaderProgram, ShaderType } from "./Shader";
 import { Texture } from "./Texture";
 import { Material, MaterialProperty, MaterialPropertyType } from "./Material";
 import { Camera } from "./Camera";
-import { PointLight } from "./Light";
+
+/**
+ * The number of point lights the lighting shader declares (`MAX_LIGHTS` in
+ * Lighting.frag.glsl). Lights past this are ignored; keep the two in step.
+ */
+const MAX_LIGHTS = 10;
 
 /**
  * One thing to draw this frame: a mesh (its GPU buffers) with a material and a
@@ -245,13 +250,13 @@ class Renderer {
 	 * @param renderables - What to draw this frame
 	 * @param cam - The camera whose view/projection to render from
 	 * @param ambientLight - The scene ambient light color
-	 * @param lights - The point lights illuminating the scene
+	 * @param lightPositions - World-space positions of the point lights
 	 */
 	render(
 		renderables: Renderable[],
 		cam: Camera,
 		ambientLight: vec3,
-		lights: PointLight[]
+		lightPositions: vec3[]
 	): void {
 		this.clear();
 
@@ -287,17 +292,13 @@ class Renderer {
 			mat3.normalFromMat4(normalMatrix, obj.transform);
 			this.setUniform3Mat(shaderProgram, "u_normalMatrix", normalMatrix);
 
-			// setup lights
-			this.setUniform1i(shaderProgram, "u_numLights", lights.length);
+			// setup lights. The shader declares a fixed-size array, so ignore any
+			// lights past it rather than writing uniforms that do not exist.
+			const visibleLights = lightPositions.slice(0, MAX_LIGHTS);
+			this.setUniform1i(shaderProgram, "u_numLights", visibleLights.length);
 			this.setUniform3f(shaderProgram, "u_ambientLight", ambientLight);
-			lights.forEach((light: PointLight, i: number) => {
-				if (light instanceof PointLight) {
-					this.setPointLight(
-						shaderProgram,
-						`u_lightList[${i}]`,
-						light
-					);
-				}
+			visibleLights.forEach((position: vec3, i: number) => {
+				this.setPointLight(shaderProgram, `u_lightList[${i}]`, position);
 			});
 
 			this.drawElements(
@@ -305,7 +306,7 @@ class Renderer {
 				obj.indexBuffer.length,
 				this._gl.UNSIGNED_INT
 			);
-			this.unbindSceneObject();
+			this.unbindRenderable();
 		});
 
 		// Copy the shaded color image onto the visible canvas. The id-texture
@@ -622,14 +623,14 @@ class Renderer {
 	 *
 	 * @param shaderProgram - The shader program to set the point light in
 	 * @param name - The name of the point light
-	 * @param light - The point light object
+	 * @param position - The world-space position of the point light
 	 */
 	setPointLight(
 		shaderProgram: ShaderProgram,
 		name: string,
-		light: PointLight
+		position: vec3
 	) {
-		this.setUniform3f(shaderProgram, `${name}.pos`, light.position);
+		this.setUniform3f(shaderProgram, `${name}.pos`, position);
 	}
 
 	/**
@@ -837,7 +838,12 @@ class Renderer {
 
 		// Color renderbuffer (COLOR_ATTACHMENT0): resizable in place.
 		this._gl.bindRenderbuffer(this._gl.RENDERBUFFER, this._renderBuffer);
-		this._gl.renderbufferStorage(this._gl.RENDERBUFFER, this._gl.RGBA8, w, h);
+		this._gl.renderbufferStorage(
+			this._gl.RENDERBUFFER,
+			this._gl.RGBA8,
+			w,
+			h
+		);
 		this._gl.bindRenderbuffer(this._gl.RENDERBUFFER, null);
 
 		// Id texture (COLOR_ATTACHMENT1): immutable storage, so recreate it and
@@ -888,7 +894,7 @@ class Renderer {
 	/**
 	 * Unbinds all buffers and shaders
 	 */
-	unbindSceneObject(): void {
+	unbindRenderable(): void {
 		this.unbindVertexBuffer();
 		this.unbindIndexBuffer();
 		this.dropProgram();

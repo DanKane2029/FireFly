@@ -59,7 +59,7 @@ class OrbitalControls implements Controller {
 		const dy = current[1] - this._lastPointer[1];
 		this._lastPointer = current;
 
-		const camera = app.scene.camera;
+		const camera = app.camera;
 		const orientation = camera.orientation;
 
 		// The camera's current up and right axes, in world space. Rotating about
@@ -88,19 +88,11 @@ class OrbitalControls implements Controller {
 
 		// Re-orient the camera and swing its position around the target by the
 		// same rotation, so it stays aimed at the target.
-		const newOrientation = quat.multiply(
-			quat.create(),
-			delta,
-			orientation
-		);
+		const newOrientation = quat.multiply(quat.create(), delta, orientation);
 		quat.normalize(newOrientation, newOrientation);
 		camera.orientation = newOrientation;
 
-		const offset = vec3.subtract(
-			vec3.create(),
-			camera.translation,
-			TARGET
-		);
+		const offset = vec3.subtract(vec3.create(), camera.translation, TARGET);
 		vec3.transformQuat(offset, offset, delta);
 		camera.translation = vec3.add(vec3.create(), TARGET, offset);
 	}
@@ -112,12 +104,8 @@ class OrbitalControls implements Controller {
 	 * @param event - The wheel event being fired
 	 */
 	onWheel(app: App, event: WheelEvent): void {
-		const camera = app.scene.camera;
-		const offset = vec3.subtract(
-			vec3.create(),
-			camera.translation,
-			TARGET
-		);
+		const camera = app.camera;
+		const offset = vec3.subtract(vec3.create(), camera.translation, TARGET);
 
 		// Scroll up (deltaY < 0) zooms in; scaling the offset keeps the view
 		// direction unchanged, so the camera stays aimed at the target.

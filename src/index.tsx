@@ -6,7 +6,7 @@ import { Editor } from "./UI/Editor";
 import { fireflyTheme } from "./UI/theme";
 import "./style.css";
 
-// The persistent engine: owns the Scene and lives for the whole session. Panels
+// The persistent engine: owns the world and lives for the whole session. Panels
 // (including the Scene panel that renders the WebGL view) attach to it.
 const app = new App();
 

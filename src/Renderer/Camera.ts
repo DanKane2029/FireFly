@@ -1,5 +1,4 @@
 import { vec3, mat4, mat3, quat, glMatrix } from "gl-matrix";
-import { UpdateFunction } from "./UpdateFunction";
 
 /**
  * Used to view objects in a scene and describes the perspective of the view on the screen.
@@ -26,7 +25,6 @@ class Camera {
 	private _near: number;
 	private _far: number;
 	private _fovy: number;
-	private _updateFunction: UpdateFunction;
 
 	// Cached matrices are only rebuilt when a dependency changes.
 	private _perspectiveDirty: boolean;
@@ -52,7 +50,6 @@ class Camera {
 		this._translation = vec3.fromValues(0, 0, 0);
 		this._viewMatrix = mat4.create();
 		this._orientation = quat.create(); // identity: looking down -Z
-		this._updateFunction = () => undefined;
 
 		this._perspectiveDirty = true;
 		this._viewDirty = true;
@@ -196,20 +193,6 @@ class Camera {
 		quat.fromMat3(orientation, basis);
 		quat.normalize(orientation, orientation);
 		this.orientation = orientation;
-	}
-
-	/**
-	 * Sets the update function for the camera
-	 */
-	set updateFunction(updateFuntion: UpdateFunction) {
-		this._updateFunction = updateFuntion;
-	}
-
-	/**
-	 * Gets the update function for the camera
-	 */
-	get updateFunction(): UpdateFunction {
-		return this._updateFunction;
 	}
 }
 

@@ -1,6 +1,6 @@
-import { Scene } from "../Renderer/Scene";
 import { Renderer } from "../Renderer/Renderer";
 import { Picker } from "../Renderer/Picker";
+import { Camera } from "../Renderer/Camera";
 import { Controller } from "../Controller/Controller";
 
 // controllers
@@ -8,12 +8,18 @@ import { AddCubeController } from "../Controller/AddCube";
 import { OrbitalControls } from "../Controller/OrbitalCamera";
 import { SelectObjectController } from "../Controller/SelectObject";
 
-import { PointLight } from "../Renderer/Light";
-import { vec2 } from "gl-matrix";
+import { vec2, vec3, vec4 } from "gl-matrix";
 
 import { World } from "../ecs/World";
+import { Scheduler } from "../ecs/System";
 import { renderSystem } from "../ecs/systems/RenderSystem";
-import { spawnSnowman, spawnBunny, spawnDragon } from "../ecs/scenes";
+import { animationSystem } from "../ecs/systems/AnimationSystem";
+import {
+	spawnSnowman,
+	spawnBunny,
+	spawnDragon,
+	spawnDefaultLights,
+} from "../ecs/scenes";
 
 /**
  * The selectable test scenes, each a function that populates the ECS world with
@@ -27,22 +33,29 @@ const SCENES: Record<string, (world: World) => void> = {
 };
 
 /**
- * The persistent core of the application: it owns the Scene (the 3D world), the
- * active input controller, and a small store of editor UI state (the current
- * selection). It deliberately does NOT own the canvas or WebGL context - those
- * belong to whichever Scene panel is currently displaying the world.
+ * The persistent core of the application: it owns the ECS world (the entities),
+ * the camera and lights, the system schedule, the active input controller, and a
+ * small store of editor UI state (the current selection). It deliberately does
+ * NOT own the canvas or WebGL context - those belong to whichever Scene panel is
+ * currently displaying the world.
  *
  * This split is what lets the docking UI treat the 3D view as just another
  * panel: the App lives for the whole session, while the Scene panel calls
  * `attachCanvas` when it mounts and `detachCanvas` when it unmounts. The App
  * also exposes a tiny subscribe/getSnapshot store so React panels can observe
- * the scene and selection via `useSyncExternalStore`.
+ * the world and selection via `useSyncExternalStore`.
  */
 class App {
-	private _deltaTime: number;
-	private _scene: Scene;
 	private _world: World;
+	private _camera: Camera;
+	private _ambientLight: vec3;
+	private _backgroundColor: vec4;
 	private _controller: Controller;
+
+	// Per-frame simulation clock and the ordered list of update systems.
+	private _scheduler: Scheduler;
+	private _time: number;
+	private _lastTime: number;
 
 	// Set only while a Scene panel is displaying the world.
 	private _renderer: Renderer | undefined;
@@ -60,11 +73,18 @@ class App {
 	 * context is created here; call `attachCanvas` once a canvas exists.
 	 */
 	constructor() {
-		this._deltaTime = 0.001;
-		// Aspect ratio is a placeholder until a canvas is attached / resized.
-		this._scene = new Scene(this._deltaTime, 1, 1);
 		this._world = new World();
+		// Aspect ratio is a placeholder until a canvas is attached / resized.
+		this._camera = new Camera(1, 45, 0.01, 1000);
+		this._ambientLight = vec3.fromValues(0.1, 0.1, 0.1);
+		this._backgroundColor = [0.2, 0.2, 0.2, 1.0];
 		this._controller = new OrbitalControls();
+
+		// Update systems run in order each frame (movement/animation before the
+		// render). RenderSystem is run separately since it needs GPU resources.
+		this._scheduler = new Scheduler().add(animationSystem);
+		this._time = 0;
+		this._lastTime = 0;
 
 		this._selectedId = null;
 		this._version = 0;
@@ -78,15 +98,11 @@ class App {
 	 * needs no renderer.
 	 */
 	private buildWorld(): void {
-		this._scene.backgroundColor = [0.2, 0.2, 0.2, 1.0];
-		this._scene.ambientLight = [0.1, 0.1, 0.1];
-
-		this._scene.camera.translation = [0, 0, 2];
-		this._scene.camera.lookAt([0, 0, 0]);
-
-		this._scene.addLight(new PointLight([5, 0, 10]));
+		this._camera.translation = [0, 0, 2];
+		this._camera.lookAt([0, 0, 0]);
 
 		// Start on the snowman scene; press 2 / 3 to switch to the bunny / dragon.
+		// loadScene spawns the lights along with the scene's entities.
 		this.loadScene("snowman");
 	}
 
@@ -121,8 +137,12 @@ class App {
 			this._renderer.canvasSize
 		);
 
-		this._scene.camera.aspectRatio = canvas.width / canvas.height;
-		this._renderer.initScene(this._scene.backgroundColor);
+		this._camera.aspectRatio = canvas.width / canvas.height;
+		this._renderer.initScene(this._backgroundColor);
+
+		// Reset the clock so the first frame's delta isn't the whole time the
+		// panel was detached.
+		this._lastTime = performance.now();
 
 		this.setController(this._controller);
 		this.bindKeyboard();
@@ -130,8 +150,8 @@ class App {
 
 	/**
 	 * Detaches the current canvas, removing input handlers and dropping the
-	 * renderer/picker. The Scene (the world) is left untouched so it survives the
-	 * panel being closed and reopened. Called when the Scene panel unmounts.
+	 * renderer/picker. The world is left untouched so it survives the panel being
+	 * closed and reopened. Called when the Scene panel unmounts.
 	 */
 	detachCanvas(): void {
 		if (this._canvasElement) {
@@ -171,21 +191,14 @@ class App {
 		this._canvasElement.width = w;
 		this._canvasElement.height = h;
 		this._renderer.resize(w, h);
-		this._scene.camera.aspectRatio = w / h;
+		this._camera.aspectRatio = w / h;
 	}
 
 	/**
-	 * Gets the delta time value. Delta time is how fast time moves per application frame.
+	 * Gets the camera used to view the world (orbital controls act on it).
 	 */
-	get deltaTime(): number {
-		return this._deltaTime;
-	}
-
-	/**
-	 * Gets the scene the app uses (camera, lights, ambient, background).
-	 */
-	get scene(): Scene {
-		return this._scene;
+	get camera(): Camera {
+		return this._camera;
 	}
 
 	/**
@@ -373,24 +386,37 @@ class App {
 	 */
 	loadScene(name: keyof typeof SCENES): void {
 		this._world.clear();
+		// Lights are entities too, so clearing the world unlights it - every scene
+		// spawns the shared rig before its own contents.
+		spawnDefaultLights(this._world);
 		SCENES[name](this._world);
 		this._selectedId = null;
 		this.emit();
 	}
 
 	/**
-	 * Runs every frame: the render system draws the world's entities to the
-	 * canvas. No-op until a canvas is attached.
+	 * Runs every frame: advances the update systems by the elapsed time, then the
+	 * render system draws the world's entities to the canvas. No-op until a canvas
+	 * is attached.
 	 */
 	render(): void {
 		if (!this._renderer) {
 			return;
 		}
+
+		// Real elapsed seconds since the last frame, clamped so a background tab
+		// or a hitch doesn't produce a huge jump.
+		const now = performance.now();
+		const dt = Math.min((now - this._lastTime) / 1000, 0.1);
+		this._lastTime = now;
+		this._time += dt;
+
+		this._scheduler.run(this._world, dt, this._time);
+
 		renderSystem(this._world, {
 			renderer: this._renderer,
-			camera: this._scene.camera,
-			ambientLight: this._scene.ambientLight,
-			lights: this._scene.lightList,
+			camera: this._camera,
+			ambientLight: this._ambientLight,
 		});
 	}
 }
