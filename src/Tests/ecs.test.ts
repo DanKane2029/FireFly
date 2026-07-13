@@ -1,6 +1,9 @@
 import { describe, expect, test } from "@jest/globals";
 import { World } from "../ecs/World";
 import { defineComponent } from "../ecs/Component";
+import { Transform, createTransform } from "../ecs/components/Transform";
+import { Spin } from "../ecs/components/Spin";
+import { animationSystem } from "../ecs/systems/AnimationSystem";
 
 interface Position {
 	x: number;
@@ -84,5 +87,29 @@ describe("World queries", () => {
 		world.clear();
 		expect(world.size).toBe(0);
 		expect(world.query(Position).length).toBe(0);
+	});
+});
+
+describe("AnimationSystem", () => {
+	test("advances rotation by degreesPerSecond * dt", () => {
+		const world = new World();
+		const e = world.create();
+		world.add(e, Transform, createTransform());
+		world.add(e, Spin, { degreesPerSecond: [0, 90, 0] });
+
+		animationSystem(world, 0.5, 0.5); // half a second
+
+		const transform = world.get(e, Transform);
+		expect(transform?.rotation[1]).toBeCloseTo(45, 5);
+	});
+
+	test("leaves entities without a Spin untouched", () => {
+		const world = new World();
+		const e = world.create();
+		world.add(e, Transform, createTransform());
+
+		animationSystem(world, 1, 1);
+
+		expect(world.get(e, Transform)?.rotation[1]).toBe(0);
 	});
 });

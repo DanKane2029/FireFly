@@ -305,7 +305,7 @@ class Renderer {
 				obj.indexBuffer.length,
 				this._gl.UNSIGNED_INT
 			);
-			this.unbindSceneObject();
+			this.unbindRenderable();
 		});
 
 		// Copy the shaded color image onto the visible canvas. The id-texture
@@ -837,7 +837,12 @@ class Renderer {
 
 		// Color renderbuffer (COLOR_ATTACHMENT0): resizable in place.
 		this._gl.bindRenderbuffer(this._gl.RENDERBUFFER, this._renderBuffer);
-		this._gl.renderbufferStorage(this._gl.RENDERBUFFER, this._gl.RGBA8, w, h);
+		this._gl.renderbufferStorage(
+			this._gl.RENDERBUFFER,
+			this._gl.RGBA8,
+			w,
+			h
+		);
 		this._gl.bindRenderbuffer(this._gl.RENDERBUFFER, null);
 
 		// Id texture (COLOR_ATTACHMENT1): immutable storage, so recreate it and
@@ -888,7 +893,7 @@ class Renderer {
 	/**
 	 * Unbinds all buffers and shaders
 	 */
-	unbindSceneObject(): void {
+	unbindRenderable(): void {
 		this.unbindVertexBuffer();
 		this.unbindIndexBuffer();
 		this.dropProgram();

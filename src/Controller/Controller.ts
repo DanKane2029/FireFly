@@ -5,10 +5,10 @@ import { App } from "../App/App";
  * interacts with the application.
  *
  * Every handler receives the whole App so it can reach whatever it needs -
- * the scene (app.scene), the renderer (app.renderer), or the picker
- * (app.picker) - rather than each handler being handed a different, narrower
- * object. All handlers are optional; a controller implements only the events
- * it cares about.
+ * the world (app.world), the camera (app.camera), the renderer (app.renderer),
+ * or the picker (app.picker) - rather than each handler being handed a
+ * different, narrower object. All handlers are optional; a controller
+ * implements only the events it cares about.
  */
 interface Controller {
 	onClick?: (app: App, event: MouseEvent) => void;
