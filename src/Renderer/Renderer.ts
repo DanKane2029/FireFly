@@ -10,20 +10,32 @@ import {
 import { Shader, ShaderProgram, ShaderType } from "./Shader";
 import { Texture } from "./Texture";
 import { Material, MaterialProperty, MaterialPropertyType } from "./Material";
-import { Scene } from "./Scene";
-import { SceneObject } from "./SceneObject";
 import { Camera } from "./Camera";
 import { PointLight } from "./Light";
 
 /**
- * Renders a scene to a WebGL canvas.
+ * One thing to draw this frame: a mesh (its GPU buffers) with a material and a
+ * world transform, plus the id to write into the picking id-texture. The
+ * RenderSystem builds these from the ECS world; the Renderer stays a pure GPU
+ * backend that knows nothing about entities or the scene graph.
+ */
+export interface Renderable {
+	id: number;
+	transform: mat4;
+	material: Material;
+	vertexBuffer: VertexBuffer;
+	indexBuffer: IndexBuffer;
+}
+
+/**
+ * Renders a list of renderables to a WebGL canvas.
  *
- * The Renderer owns the WebGL2 context and translates the engine's high-level
- * objects (scenes, meshes, materials) into GPU calls. The overall flow is:
+ * The Renderer owns the WebGL2 context and translates high-level objects
+ * (meshes, materials, transforms) into GPU calls. The overall flow is:
  *
- *   1. initScene()          - one-time framebuffer + global GL state setup.
- *   2. ensureSceneResources() - lazily upload buffers/shaders/textures.
- *   3. drawScene()          - per frame: set uniforms and issue draw calls.
+ *   1. initScene()      - one-time framebuffer + global GL state setup.
+ *   2. ensureResources() - lazily upload buffers/shaders/textures.
+ *   3. render()         - per frame: set uniforms and issue draw calls.
  *
  * Rendering targets an offscreen framebuffer with two color attachments: the
  * visible image and an integer id-texture used for GPU object picking.
@@ -91,12 +103,11 @@ class Renderer {
 	 *   object drawn there. Reading this texture back on click is how GPU
 	 *   picking selects an object (see Picker).
 	 *
-	 * Call once after the scene's objects and background color are set, before
-	 * the first draw.
+	 * Call once after the canvas is attached, before the first draw.
 	 *
-	 * @param scene - The scene whose global state (e.g. clear color) to apply
+	 * @param backgroundColor - The clear color to apply
 	 */
-	initScene(scene: Scene): void {
+	initScene(backgroundColor: vec4): void {
 		// set up framebuffer
 		this._gl.bindFramebuffer(this._gl.FRAMEBUFFER, this._frameBuffer);
 
@@ -171,7 +182,7 @@ class Renderer {
 
 		// global GL state that is constant for the lifetime of the scene
 		this._gl.cullFace(this._gl.BACK);
-		this.setClearColor(scene.backgroundColor);
+		this.setClearColor(backgroundColor);
 		this.enable(this._gl.DEPTH_TEST);
 		this._gl.enable(this._gl.BLEND);
 		this._gl.blendFunc(this._gl.SRC_ALPHA, this._gl.ONE_MINUS_SRC_ALPHA);
@@ -179,14 +190,14 @@ class Renderer {
 
 	/**
 	 * Lazily uploads GPU resources (vertex/index buffers, shader programs,
-	 * textures) for any object that has not been uploaded yet. Objects track
-	 * this with `created` flags, so this is cheap to call every frame and
-	 * automatically picks up objects added at runtime.
+	 * textures) for any renderable that has not been uploaded yet. Buffers and
+	 * programs track this with `created` flags, so this is cheap to call every
+	 * frame and automatically picks up entities added at runtime.
 	 *
-	 * @param scene - The scene whose objects to upload
+	 * @param renderables - The renderables whose GPU resources to upload
 	 */
-	ensureSceneResources(scene: Scene): void {
-		scene.objectList.forEach((obj: SceneObject) => {
+	ensureResources(renderables: Renderable[]): void {
+		renderables.forEach((obj: Renderable) => {
 			if (!obj.vertexBuffer.created) {
 				this.createVertexBuffer(obj.vertexBuffer);
 			}
@@ -227,23 +238,31 @@ class Renderer {
 	}
 
 	/**
-	 * Draws the scene to the screen
+	 * Draws a list of renderables to the screen, lit by the given camera, ambient
+	 * light, and point lights. The list is produced by the RenderSystem from the
+	 * ECS world; the Renderer itself is world-agnostic.
 	 *
-	 * @param scene - The scene to draw
+	 * @param renderables - What to draw this frame
+	 * @param cam - The camera whose view/projection to render from
+	 * @param ambientLight - The scene ambient light color
+	 * @param lights - The point lights illuminating the scene
 	 */
-	drawScene(scene: Scene): void {
+	render(
+		renderables: Renderable[],
+		cam: Camera,
+		ambientLight: vec3,
+		lights: PointLight[]
+	): void {
 		this.clear();
 
-		this.ensureSceneResources(scene);
-
-		const cam: Camera = scene.camera;
+		this.ensureResources(renderables);
 
 		// Render into the offscreen framebuffer so each object writes both its
 		// shaded color (attachment 0) and its id (attachment 1) in one pass.
 		this._gl.bindFramebuffer(this._gl.FRAMEBUFFER, this._frameBuffer);
 
-		scene.objectList.forEach((obj: SceneObject) => {
-			this.bindSceneObject(obj);
+		renderables.forEach((obj: Renderable) => {
+			this.bindRenderable(obj);
 
 			const shaderProgram: ShaderProgram = obj.material.program;
 
@@ -269,17 +288,9 @@ class Renderer {
 			this.setUniform3Mat(shaderProgram, "u_normalMatrix", normalMatrix);
 
 			// setup lights
-			this.setUniform1i(
-				shaderProgram,
-				"u_numLights",
-				scene.lightList.length
-			);
-			this.setUniform3f(
-				shaderProgram,
-				"u_ambientLight",
-				scene.ambientLight
-			);
-			scene.lightList.forEach((light: PointLight, i: number) => {
+			this.setUniform1i(shaderProgram, "u_numLights", lights.length);
+			this.setUniform3f(shaderProgram, "u_ambientLight", ambientLight);
+			lights.forEach((light: PointLight, i: number) => {
 				if (light instanceof PointLight) {
 					this.setPointLight(
 						shaderProgram,
@@ -863,11 +874,11 @@ class Renderer {
 	}
 
 	/**
-	 * Binds the buffers and material associated with the scene object so it can be rendered
+	 * Binds the buffers and material associated with a renderable so it can be drawn
 	 *
-	 * @param obj - The scene object to bind
+	 * @param obj - The renderable to bind
 	 */
-	bindSceneObject(obj: SceneObject): void {
+	bindRenderable(obj: Renderable): void {
 		this.bindVertexBuffer(obj.vertexBuffer);
 		this.setVertexAttributes(obj.material.program, obj.vertexBuffer.layout);
 		this.bindIndexBuffer(obj.indexBuffer);

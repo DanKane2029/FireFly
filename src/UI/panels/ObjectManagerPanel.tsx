@@ -9,22 +9,23 @@ import {
 } from "@mui/material";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import { useEditorStore } from "../EngineContext";
+import { Named } from "../../ecs/components/Named";
 
 /**
- * Lists the objects currently in the scene. Clicking a row selects that object
- * (which the Inspector then edits); the trash button removes it. Built from
- * Material UI list components so it inherits the Firefly theme, and kept
- * intentionally minimal as a template for richer object management later.
+ * Lists the named entities in the ECS world. Clicking a row selects that entity
+ * (which the Inspector then edits); the trash button destroys it. This is the
+ * ECS analogue of a scene-object list - it queries the world for entities that
+ * have a Named component.
  */
 export function ObjectManagerPanel() {
 	const app = useEditorStore();
-	const objects = app.scene.objectList;
+	const entities = app.world.query(Named);
 
-	const remove = (id: number) => {
-		app.scene.deleteObject(id);
-		// deleteObject does not itself notify; clearing an equal selection emits,
+	const remove = (entity: number) => {
+		app.world.destroy(entity);
+		// destroy does not itself notify; clearing an equal selection emits,
 		// otherwise emit explicitly so the list re-renders.
-		if (app.selectedId === id) {
+		if (app.selectedId === entity) {
 			app.select(null);
 		} else {
 			app.notifyChanged();
@@ -33,33 +34,33 @@ export function ObjectManagerPanel() {
 
 	return (
 		<Box sx={{ height: "100%", overflow: "auto", bgcolor: "background.paper" }}>
-			{objects.length === 0 ? (
+			{entities.length === 0 ? (
 				<Typography variant="body2" color="text.secondary" sx={{ p: 1.5 }}>
 					No objects in the scene.
 				</Typography>
 			) : (
 				<List dense disablePadding>
-					{objects.map((obj) => (
+					{entities.map(([entity, named]) => (
 						<ListItem
-							key={obj.id}
+							key={entity}
 							disablePadding
 							secondaryAction={
 								<IconButton
 									edge="end"
 									size="small"
 									aria-label="remove"
-									onClick={() => remove(obj.id)}
+									onClick={() => remove(entity)}
 								>
 									<DeleteOutlineIcon fontSize="small" />
 								</IconButton>
 							}
 						>
 							<ListItemButton
-								selected={obj.id === app.selectedId}
-								onClick={() => app.select(obj.id)}
+								selected={entity === app.selectedId}
+								onClick={() => app.select(entity)}
 							>
 								<ListItemText
-									primary={obj.name || `Object #${obj.id}`}
+									primary={named.name || `Entity #${entity}`}
 								/>
 							</ListItemButton>
 						</ListItem>
