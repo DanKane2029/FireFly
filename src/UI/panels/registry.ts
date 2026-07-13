@@ -12,14 +12,20 @@ export interface PanelType {
 	id: string;
 	title: string;
 	component: FunctionComponent<IDockviewPanelProps>;
+	/**
+	 * If true, only one instance may exist at a time (adding again focuses the
+	 * existing one). The Scene panel is a singleton because the App drives a
+	 * single WebGL canvas.
+	 */
+	singleton?: boolean;
 }
 
 /**
  * The catalog of available panels. Adding a new panel is a one-line entry here
- * (plus its component); a future "add panel" menu can enumerate this list.
+ * (plus its component); the nav bar's "Add Panel" menu enumerates this list.
  */
 export const PANEL_TYPES: PanelType[] = [
-	{ id: "scene", title: "Scene", component: ScenePanel },
+	{ id: "scene", title: "Scene", component: ScenePanel, singleton: true },
 	{ id: "objects", title: "Objects", component: ObjectManagerPanel },
 	{ id: "inspector", title: "Inspector", component: InspectorPanel },
 ];
