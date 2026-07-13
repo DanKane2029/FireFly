@@ -8,22 +8,22 @@ import { AddCubeController } from "../Controller/AddCube";
 import { OrbitalControls } from "../Controller/OrbitalCamera";
 import { SelectObjectController } from "../Controller/SelectObject";
 
-import { createSnowman } from "../SceneObjects/Snowman";
-import { createBunnyScene } from "../SceneObjects/Bunny";
-import { createDragonScene } from "../SceneObjects/Dragon";
-import { SceneObject } from "../Renderer/SceneObject";
 import { PointLight } from "../Renderer/Light";
 import { vec2 } from "gl-matrix";
 
+import { World } from "../ecs/World";
+import { renderSystem } from "../ecs/systems/RenderSystem";
+import { spawnSnowman, spawnBunny, spawnDragon } from "../ecs/scenes";
+
 /**
- * The selectable test scenes, each a factory that builds a fresh set of objects.
- * The Renderer uploads whatever objects are in the scene lazily, so swapping
- * `Scene.objectList` to another factory's output is all a scene switch needs.
+ * The selectable test scenes, each a function that populates the ECS world with
+ * a set of entities. Switching scenes just clears the world and runs one of
+ * these.
  */
-const SCENES: Record<string, () => SceneObject[]> = {
-	snowman: createSnowman,
-	bunny: createBunnyScene,
-	dragon: createDragonScene,
+const SCENES: Record<string, (world: World) => void> = {
+	snowman: spawnSnowman,
+	bunny: spawnBunny,
+	dragon: spawnDragon,
 };
 
 /**
@@ -41,6 +41,7 @@ const SCENES: Record<string, () => SceneObject[]> = {
 class App {
 	private _deltaTime: number;
 	private _scene: Scene;
+	private _world: World;
 	private _controller: Controller;
 
 	// Set only while a Scene panel is displaying the world.
@@ -62,6 +63,7 @@ class App {
 		this._deltaTime = 0.001;
 		// Aspect ratio is a placeholder until a canvas is attached / resized.
 		this._scene = new Scene(this._deltaTime, 1, 1);
+		this._world = new World();
 		this._controller = new OrbitalControls();
 
 		this._selectedId = null;
@@ -120,7 +122,7 @@ class App {
 		);
 
 		this._scene.camera.aspectRatio = canvas.width / canvas.height;
-		this._renderer.initScene(this._scene);
+		this._renderer.initScene(this._scene.backgroundColor);
 
 		this.setController(this._controller);
 		this.bindKeyboard();
@@ -180,10 +182,18 @@ class App {
 	}
 
 	/**
-	 * Gets the scene the app uses
+	 * Gets the scene the app uses (camera, lights, ambient, background).
 	 */
 	get scene(): Scene {
 		return this._scene;
+	}
+
+	/**
+	 * Gets the ECS world holding the scene's entities. Panels query this to list
+	 * and edit objects.
+	 */
+	get world(): World {
+		return this._world;
 	}
 
 	/**
@@ -259,19 +269,9 @@ class App {
 	}
 
 	/**
-	 * The currently selected object, or undefined if nothing is selected.
-	 */
-	get selectedObject(): SceneObject | undefined {
-		if (this._selectedId === null) {
-			return undefined;
-		}
-		return this._scene.objectList.find((obj) => obj.id === this._selectedId);
-	}
-
-	/**
-	 * Selects an object by id (or clears the selection with null).
+	 * Selects an entity by id (or clears the selection with null).
 	 *
-	 * @param id - The object id to select, or null for no selection
+	 * @param id - The entity id to select, or null for no selection
 	 */
 	select(id: number | null): void {
 		if (id !== this._selectedId) {
@@ -365,28 +365,33 @@ class App {
 	}
 
 	/**
-	 * Replaces the objects in the scene with a named test scene, clears the
+	 * Clears the world and repopulates it with a named test scene, clears the
 	 * selection, and notifies observing panels. The renderer uploads the new
-	 * objects' GPU resources on the next frame automatically.
+	 * entities' GPU resources on the next frame automatically.
 	 *
 	 * @param name - A key of SCENES ("snowman", "bunny", or "dragon").
 	 */
 	loadScene(name: keyof typeof SCENES): void {
-		this._scene.objectList = SCENES[name]();
+		this._world.clear();
+		SCENES[name](this._world);
 		this._selectedId = null;
 		this.emit();
 	}
 
 	/**
-	 * Runs every frame and renders the current scene to the canvas. No-op until a
-	 * canvas is attached.
+	 * Runs every frame: the render system draws the world's entities to the
+	 * canvas. No-op until a canvas is attached.
 	 */
 	render(): void {
 		if (!this._renderer) {
 			return;
 		}
-		this._scene.updateFunction();
-		this._renderer.drawScene(this._scene);
+		renderSystem(this._world, {
+			renderer: this._renderer,
+			camera: this._scene.camera,
+			ambientLight: this._scene.ambientLight,
+			lights: this._scene.lightList,
+		});
 	}
 }
 

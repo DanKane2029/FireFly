@@ -2,6 +2,8 @@ import { ChangeEvent } from "react";
 import { Box, Stack, Typography } from "@mui/material";
 import { useEditorStore } from "../EngineContext";
 import { MaterialProperty, MaterialPropertyType } from "../../Renderer/Material";
+import { MaterialRef } from "../../ecs/components/MaterialRef";
+import { Named } from "../../ecs/components/Named";
 
 /** Formats a 0..1 rgb(a) color as a "#rrggbb" hex string for <input type=color>. */
 function toHex(color: ArrayLike<number>): string {
@@ -19,17 +21,18 @@ function fromHex(hex: string): [number, number, number] {
 }
 
 /**
- * Edits the material of the currently selected object. For now it exposes the
- * `u_color` VEC4 uniform via a color swatch; editing it calls
- * `Material.setProperty` and notifies the store, so the change shows in the
- * scene immediately. Styled with Material UI (the Firefly theme) and meant as
- * the template for a fuller material editor later.
+ * Edits the material of the currently selected entity. It reads the entity's
+ * MaterialRef component from the world and, for now, exposes the `u_color` VEC4
+ * uniform via a color swatch; editing it calls `Material.setProperty` and
+ * notifies the store, so the change shows in the scene immediately.
  */
 export function InspectorPanel() {
 	const app = useEditorStore();
-	const object = app.selectedObject;
+	const entity = app.selectedId;
+	const materialRef =
+		entity !== null ? app.world.get(entity, MaterialRef) : undefined;
 
-	if (!object) {
+	if (entity === null || !materialRef) {
 		return (
 			<Typography variant="body2" color="text.secondary" sx={{ p: 1.5 }}>
 				Select an object to edit its material.
@@ -37,7 +40,9 @@ export function InspectorPanel() {
 		);
 	}
 
-	const colorProp = object.material.properties.find(
+	const material = materialRef.material;
+	const named = app.world.get(entity, Named);
+	const colorProp = material.properties.find(
 		(prop: MaterialProperty) =>
 			prop.name === "u_color" && prop.type === MaterialPropertyType.VEC4
 	);
@@ -45,7 +50,7 @@ export function InspectorPanel() {
 	return (
 		<Box sx={{ p: 1.5, height: "100%", bgcolor: "background.paper" }}>
 			<Typography variant="caption" color="text.secondary">
-				{object.name || `Object #${object.id}`} — {object.material.name}
+				{named?.name ?? `Entity #${entity}`} — {material.name}
 			</Typography>
 
 			{colorProp ? (
@@ -64,12 +69,7 @@ export function InspectorPanel() {
 							const [r, g, b] = fromHex(event.target.value);
 							const current = colorProp.value as ArrayLike<number>;
 							const alpha = current[3] ?? 1;
-							object.material.setProperty("u_color", [
-								r,
-								g,
-								b,
-								alpha,
-							]);
+							material.setProperty("u_color", [r, g, b, alpha]);
 							app.notifyChanged();
 						}}
 						sx={{
