@@ -1,5 +1,16 @@
 import { ChangeEvent, useState } from "react";
-import { Box, Divider, Stack, SxProps, TextField, Typography } from "@mui/material";
+import {
+	Box,
+	Divider,
+	IconButton,
+	InputAdornment,
+	Stack,
+	SxProps,
+	TextField,
+	Typography,
+} from "@mui/material";
+import AddIcon from "@mui/icons-material/Add";
+import RemoveIcon from "@mui/icons-material/Remove";
 import { useEditorStore } from "../EngineContext";
 import {
 	MaterialProperty,
@@ -39,15 +50,18 @@ function formatNumber(value: number): string {
 // row can't afford the default outlined-field padding (14px each side) *and*
 // the native up/down spinner buttons - between the two there was only about
 // 45px left to actually draw digits in, which clipped anything longer than
-// "0" (e.g. "-0.3" rendered as "-0."). Hiding the spinners (too small to hit
-// reliably anyway) and shrinking the padding reclaims that space; each field
-// also flexes evenly across the row instead of a fixed width, so three of
-// them plus gaps never exceeds the row's actual available width.
+// "0" (e.g. "-0.3" rendered as "-0."). The native spinners are hidden (too
+// small to hit reliably anyway) in favor of the custom +/- buttons below;
+// the input's own padding is shrunk to reclaim more of that width for
+// digits, and the value is centered now that it isn't flush against a
+// spinner. Each field also flexes evenly across the row instead of a fixed
+// width, so three of them plus gaps never exceeds the row's actual width.
 const NUMBER_FIELD_SX: SxProps = {
 	flex: 1,
 	minWidth: 0,
 	"& .MuiOutlinedInput-input": {
-		padding: "6px 6px",
+		padding: "6px 4px",
+		textAlign: "center",
 		MozAppearance: "textfield",
 	},
 	"& input[type=number]::-webkit-outer-spin-button, & input[type=number]::-webkit-inner-spin-button":
@@ -57,52 +71,118 @@ const NUMBER_FIELD_SX: SxProps = {
 		},
 };
 
+// A field only has room for +/- buttons alongside the number once it's wide
+// enough for both without squeezing the digits back into unreadable
+// territory - below that, the buttons just don't render (not "display: none"
+// on principle, but because a field this narrow has no business trying to
+// fit three things side by side). Measured against the field's own box via a
+// CSS container query, not the viewport, so it responds to the Inspector
+// panel actually being resized (dockview panels are user-resizable) rather
+// than a one-time layout guess.
+const STEP_FIELD_CONTAINER_SX: SxProps = {
+	containerType: "inline-size",
+	flex: 1,
+	minWidth: 0,
+};
+
+const STEP_BUTTON_SX: SxProps = {
+	display: "none",
+	"@container (min-width: 108px)": {
+		display: "inline-flex",
+	},
+};
+
 interface NumberFieldProps {
 	label: string;
 	value: number;
+	/** How much a +/- click changes the value by. */
+	step?: number;
 	onCommit: (value: number) => void;
 }
 
 /**
- * A single numeric field. Shows a short, rounded form of `value` while not
- * focused (see formatNumber), but once focused shows exactly what's being
- * typed instead - otherwise re-rounding the display on every keystroke would
- * fight the user typing a fourth decimal place, or a trailing ".".
+ * A single numeric field: a centered value with +/- buttons that appear on
+ * either side once the field is wide enough to fit them (see
+ * STEP_FIELD_CONTAINER_SX) - on a field too narrow for that, it's just the
+ * number, still fully readable.
  *
- * Commits on every keystroke that parses as a number (same as before this
- * component existed), at full precision - only the *display* is rounded, the
- * committed value never loses precision.
+ * Shows a short, rounded form of `value` while not focused (see
+ * formatNumber), but once focused shows exactly what's being typed instead -
+ * otherwise re-rounding the display on every keystroke would fight the user
+ * typing a fourth decimal place, or a trailing ".".
+ *
+ * Commits on every keystroke that parses as a number, and on every +/- click,
+ * at full precision - only the *display* is rounded, the committed value
+ * never loses precision.
  */
-function NumberField({ label, value, onCommit }: NumberFieldProps) {
+function NumberField({ label, value, step = 0.1, onCommit }: NumberFieldProps) {
 	const [editingText, setEditingText] = useState<string | null>(null);
 	const displayValue = editingText ?? formatNumber(value);
 
 	return (
-		<TextField
-			label={label}
-			type="number"
-			size="small"
-			variant="outlined"
-			value={displayValue}
-			inputProps={{ step: "any" }}
-			sx={NUMBER_FIELD_SX}
-			onFocus={() => setEditingText(formatNumber(value))}
-			onBlur={() => setEditingText(null)}
-			onChange={(event: ChangeEvent<HTMLInputElement>) => {
-				const raw = event.target.value;
-				setEditingText(raw);
-				const parsed = Number(raw);
-				if (raw !== "" && !Number.isNaN(parsed)) {
-					onCommit(parsed);
-				}
-			}}
-		/>
+		<Box sx={STEP_FIELD_CONTAINER_SX}>
+			<TextField
+				label={label}
+				type="number"
+				size="small"
+				variant="outlined"
+				fullWidth
+				value={displayValue}
+				inputProps={{ step: "any" }}
+				sx={NUMBER_FIELD_SX}
+				onFocus={() => setEditingText(formatNumber(value))}
+				onBlur={() => setEditingText(null)}
+				onChange={(event: ChangeEvent<HTMLInputElement>) => {
+					const raw = event.target.value;
+					setEditingText(raw);
+					const parsed = Number(raw);
+					if (raw !== "" && !Number.isNaN(parsed)) {
+						onCommit(parsed);
+					}
+				}}
+				InputProps={{
+					startAdornment: (
+						<InputAdornment position="start" sx={STEP_BUTTON_SX}>
+							<IconButton
+								size="small"
+								aria-label={`decrease ${label}`}
+								onClick={() => {
+									setEditingText(null);
+									onCommit(value - step);
+								}}
+								sx={{ p: 0.25 }}
+							>
+								<RemoveIcon fontSize="inherit" />
+							</IconButton>
+						</InputAdornment>
+					),
+					endAdornment: (
+						<InputAdornment position="end" sx={STEP_BUTTON_SX}>
+							<IconButton
+								size="small"
+								aria-label={`increase ${label}`}
+								onClick={() => {
+									setEditingText(null);
+									onCommit(value + step);
+								}}
+								sx={{ p: 0.25 }}
+							>
+								<AddIcon fontSize="inherit" />
+							</IconButton>
+						</InputAdornment>
+					),
+				}}
+			/>
+		</Box>
 	);
 }
 
 interface Vector3RowProps {
 	label: string;
 	value: ArrayLike<number>;
+	/** How much a +/- click changes one axis by (translation/scale want finer
+	 * steps than rotation). */
+	step?: number;
 	onChangeAxis: (axis: number, value: number) => void;
 }
 
@@ -118,7 +198,7 @@ interface Vector3RowProps {
  * row without squeezing the fields down far enough to clip their own values
  * (see NUMBER_FIELD_SX).
  */
-function Vector3Row({ label, value, onChangeAxis }: Vector3RowProps) {
+function Vector3Row({ label, value, step, onChangeAxis }: Vector3RowProps) {
 	return (
 		<Box sx={{ mt: 1 }}>
 			<Typography variant="body2" color="text.secondary">
@@ -130,6 +210,7 @@ function Vector3Row({ label, value, onChangeAxis }: Vector3RowProps) {
 						key={axis}
 						label={axis}
 						value={value[i]}
+						step={step}
 						onCommit={(v) => onChangeAxis(i, v)}
 					/>
 				))}
@@ -161,6 +242,7 @@ function TransformEditor({ transform, onChange }: TransformEditorProps) {
 			<Vector3Row
 				label="Rotation °"
 				value={transform.rotation}
+				step={1}
 				onChangeAxis={(axis, value) => {
 					transform.rotation[axis] = value;
 					onChange();
