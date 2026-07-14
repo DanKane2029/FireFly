@@ -10,6 +10,66 @@ import {
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import { PANEL_TYPES, PanelType } from "./panels/registry";
+import { useApp } from "./EngineContext";
+
+/**
+ * New/Open/Save/Save As, backed by App's Storage-driven scene methods. A
+ * plain menu button, not a reactive one - the File menu doesn't display any
+ * scene state itself (see App.currentFileName if that ever needs to change),
+ * so there's nothing here that needs useEditorStore's re-renders.
+ */
+function FileMenu() {
+	const app = useApp();
+	const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+
+	const runAndClose = (action: () => void | Promise<void>) => {
+		setAnchor(null);
+		// Save/Open can fail (e.g. a picked file isn't valid JSON, or an
+		// AssetRegistry/format check in deserializeScene throws) - there's no
+		// toast/notification system yet, so surface it the same blunt way an
+		// uncaught render error would otherwise disappear silently.
+		Promise.resolve(action()).catch((err) => {
+			console.error(err);
+			window.alert(err instanceof Error ? err.message : String(err));
+		});
+	};
+
+	return (
+		<>
+			<Button
+				size="small"
+				onClick={(event: MouseEvent<HTMLElement>) =>
+					setAnchor(event.currentTarget)
+				}
+				sx={{ color: "text.primary" }}
+			>
+				File
+			</Button>
+			<Menu
+				anchorEl={anchor}
+				open={Boolean(anchor)}
+				onClose={() => setAnchor(null)}
+			>
+				<MenuItem onClick={() => runAndClose(() => app.newScene())}>
+					New
+				</MenuItem>
+				<MenuItem onClick={() => runAndClose(() => app.openScene())}>
+					Open…
+				</MenuItem>
+				<MenuItem onClick={() => runAndClose(() => app.saveScene())}>
+					{app.storageCapabilities.overwriteInPlace
+						? "Save"
+						: "Download"}
+				</MenuItem>
+				<MenuItem onClick={() => runAndClose(() => app.saveSceneAs())}>
+					{app.storageCapabilities.overwriteInPlace
+						? "Save As…"
+						: "Download As…"}
+				</MenuItem>
+			</Menu>
+		</>
+	);
+}
 
 interface NavBarProps {
 	/** Called when the user picks a panel type to add from the menu. */
@@ -53,10 +113,16 @@ export function NavBar({ onAddPanel }: NavBarProps) {
 				/>
 				<Typography
 					variant="subtitle2"
-					sx={{ fontWeight: 700, color: "text.primary", letterSpacing: 0.5 }}
+					sx={{
+						fontWeight: 700,
+						color: "text.primary",
+						letterSpacing: 0.5,
+					}}
 				>
 					Firefly
 				</Typography>
+
+				<FileMenu />
 
 				<Box sx={{ flex: 1 }} />
 

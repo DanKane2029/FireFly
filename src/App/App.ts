@@ -20,8 +20,24 @@ import {
 	spawnDragon,
 	spawnDefaultLights,
 } from "../ecs/scenes";
+import { litProgram } from "../ecs/prefabs";
 import { MaterialRef } from "../ecs/components/MaterialRef";
 import { assetRegistry } from "../Assets/AssetRegistry";
+import { ShaderProgram } from "../Renderer/Shader";
+import { Storage, StorageCapabilities, FileRef } from "../platform/Storage";
+import { serializeScene } from "../Scene/serializeScene";
+import { deserializeScene } from "../Scene/deserializeScene";
+import { SceneFile } from "../Scene/SceneFile";
+
+/** Shader programs a `.ffscene` material asset can reference, keyed by the
+ * shader id the file stores. The scene format only knows shaders by id;
+ * resolving that id to the actual compiled program is App's job, so the
+ * Scene module itself never has to import prefabs.ts (which pulls in
+ * webpack-only .glsl/.obj imports Jest can't transform - see the Scene
+ * module's tests). */
+const SHADER_PROGRAMS: Record<string, ShaderProgram> = { lit: litProgram };
+
+const SCENE_FILE_EXTENSION = "ffscene";
 
 /**
  * The selectable test scenes, each a function that populates the ECS world with
@@ -53,6 +69,12 @@ class App {
 	private _ambientLight: vec3;
 	private _backgroundColor: vec4;
 	private _controller: Controller;
+	private _storage: Storage;
+	// The file the current scene was last saved to or opened from, or null for
+	// an unsaved new scene. Reused so a second "Save" overwrites in place
+	// instead of re-prompting (where the backend supports that - see
+	// Storage.capabilities.overwriteInPlace).
+	private _currentFileRef: FileRef | null;
 
 	// Per-frame simulation clock and the ordered list of update systems.
 	private _scheduler: Scheduler;
@@ -73,14 +95,22 @@ class App {
 	/**
 	 * Creates the application and builds the initial world. No canvas or GL
 	 * context is created here; call `attachCanvas` once a canvas exists.
+	 *
+	 * @param storage - Where scenes are saved to and opened from.
+	 * `index.tsx` passes the real platform implementation (`createStorage()`);
+	 * tests inject `MemoryStorage` instead, so the persistence layer needs no
+	 * mocking (see docs/scene-creator-roadmap.md's storage-abstraction
+	 * section).
 	 */
-	constructor() {
+	constructor(storage: Storage) {
 		this._world = new World();
 		// Aspect ratio is a placeholder until a canvas is attached / resized.
 		this._camera = new Camera(1, 45, 0.01, 1000);
 		this._ambientLight = vec3.fromValues(0.1, 0.1, 0.1);
 		this._backgroundColor = [0.2, 0.2, 0.2, 1.0];
 		this._controller = new OrbitalControls();
+		this._storage = storage;
+		this._currentFileRef = null;
 
 		// Update systems run in order each frame (movement/animation before the
 		// render). RenderSystem is run separately since it needs GPU resources.
@@ -239,6 +269,22 @@ class App {
 		return this._renderer !== undefined;
 	}
 
+	/**
+	 * The active storage backend's capabilities - e.g. whether a "Save" click
+	 * can overwrite the open file in place, or has to become a "Download"
+	 * (see Storage.ts). The File menu reads this instead of branching on
+	 * platform directly.
+	 */
+	get storageCapabilities(): StorageCapabilities {
+		return this._storage.capabilities;
+	}
+
+	/** The name of the file the current scene was last saved to or opened
+	 * from, or null for an unsaved new scene. */
+	get currentFileName(): string | null {
+		return this._currentFileRef?.name ?? null;
+	}
+
 	// --- editor UI store -----------------------------------------------------
 
 	/**
@@ -380,6 +426,21 @@ class App {
 	}
 
 	/**
+	 * Drops every entity's material from the registry before the world that
+	 * referenced them is cleared. Every entity's material is minted fresh for
+	 * it alone (see AssetRegistry.createMaterial), so nothing else references
+	 * it once the world is cleared - skip this and the registry grows forever
+	 * as scenes are switched, saved, or loaded. Meshes are shared built-ins
+	 * and are never disposed here.
+	 */
+	private disposeCurrentMaterials(): void {
+		const renderer = this.isAttached ? this._renderer : undefined;
+		this._world.query(MaterialRef).forEach(([, materialRef]) => {
+			assetRegistry.disposeMaterial(renderer, materialRef.material);
+		});
+	}
+
+	/**
 	 * Clears the world and repopulates it with a named test scene, clears the
 	 * selection, and notifies observing panels. The renderer uploads the new
 	 * entities' GPU resources on the next frame automatically.
@@ -387,20 +448,111 @@ class App {
 	 * @param name - A key of SCENES ("snowman", "bunny", or "dragon").
 	 */
 	loadScene(name: keyof typeof SCENES): void {
-		// Every entity's material is minted fresh for it alone (see
-		// AssetRegistry.createMaterial), so nothing else references it once the
-		// world is cleared. Drop it here or the registry grows forever as scenes
-		// are switched. Meshes are shared built-ins and are never disposed.
-		const renderer = this.isAttached ? this._renderer : undefined;
-		this._world.query(MaterialRef).forEach(([, materialRef]) => {
-			assetRegistry.disposeMaterial(renderer, materialRef.material);
-		});
-
+		this.disposeCurrentMaterials();
 		this._world.clear();
 		// Lights are entities too, so clearing the world unlights it - every scene
 		// spawns the shared rig before its own contents.
 		spawnDefaultLights(this._world);
 		SCENES[name](this._world);
+		this._currentFileRef = null;
+		this._selectedId = null;
+		this.emit();
+	}
+
+	// --- scene files -----------------------------------------------------
+
+	/**
+	 * Starts a brand-new, empty scene: just the default light rig and camera,
+	 * no file reference. Without the light rig this would be a black screen -
+	 * see the roadmap's "File -> New must produce a template document
+	 * containing a camera and a light" requirement.
+	 */
+	newScene(): void {
+		this.disposeCurrentMaterials();
+		this._world.clear();
+		spawnDefaultLights(this._world);
+		this._camera.translation = vec3.fromValues(0, 0, 2);
+		this._camera.lookAt([0, 0, 0]);
+		this._ambientLight = vec3.fromValues(0.1, 0.1, 0.1);
+		this._backgroundColor = [0.2, 0.2, 0.2, 1.0];
+		this._currentFileRef = null;
+		this._selectedId = null;
+		this.emit();
+	}
+
+	/**
+	 * Saves the current scene. Reuses the file it was last saved to or opened
+	 * from when the backend supports overwriting in place; otherwise (or on
+	 * the very first save) prompts for where to save, same as `saveSceneAs`.
+	 * No-op if the user cancels the prompt.
+	 */
+	async saveScene(): Promise<void> {
+		if (
+			this._currentFileRef &&
+			this._storage.capabilities.overwriteInPlace
+		) {
+			await this.writeSceneTo(this._currentFileRef);
+			return;
+		}
+		await this.saveSceneAs();
+	}
+
+	/** Always prompts for where to save, even if the scene already has a file. */
+	async saveSceneAs(): Promise<void> {
+		const ref = await this._storage.pickSaveFile({
+			suggestedName:
+				this._currentFileRef?.name ?? `scene.${SCENE_FILE_EXTENSION}`,
+			extensions: [SCENE_FILE_EXTENSION],
+		});
+		if (!ref) {
+			return; // user cancelled
+		}
+		await this.writeSceneTo(ref);
+	}
+
+	private async writeSceneTo(ref: FileRef): Promise<void> {
+		const file = serializeScene(this._world, assetRegistry, this._camera, {
+			ambientLight: this._ambientLight,
+			backgroundColor: this._backgroundColor,
+		});
+		await this._storage.writeText(ref, JSON.stringify(file, null, "\t"));
+		this._currentFileRef = ref;
+		this.emit();
+	}
+
+	/**
+	 * Prompts the user to pick a `.ffscene` file and replaces the current
+	 * scene with it - camera and lighting included. No-op if the user
+	 * cancels the prompt.
+	 */
+	async openScene(): Promise<void> {
+		const ref = await this._storage.pickOpenFile({
+			extensions: [SCENE_FILE_EXTENSION],
+		});
+		if (!ref) {
+			return; // user cancelled
+		}
+
+		const text = await this._storage.readText(ref);
+		const file = JSON.parse(text) as SceneFile;
+
+		this.disposeCurrentMaterials();
+		this._world.clear();
+
+		const environment = deserializeScene(
+			file,
+			this._world,
+			assetRegistry,
+			this._camera,
+			SHADER_PROGRAMS
+		);
+		this._ambientLight = environment.ambientLight;
+		this._backgroundColor = environment.backgroundColor;
+		if (this._renderer) {
+			this._renderer.setClearColor(this._backgroundColor);
+		}
+
+		this._currentFileRef = ref;
 		this._selectedId = null;
 		this.emit();
 	}
