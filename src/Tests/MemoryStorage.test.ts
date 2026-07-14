@@ -1,13 +1,12 @@
 import { describe, expect, test } from "@jest/globals";
 import { MemoryStorage } from "../platform/MemoryStorage";
-import { FileRef } from "../platform/Storage";
 
-/** MemoryStorage's pickSaveFile never actually returns null (there's no real
- * dialog to cancel) - this just gives the tests a non-nullable ref to work
- * with without a `!` on every call. */
-function must(ref: FileRef | null): FileRef {
+/** MemoryStorage's pickSaveFile/openWorkspace never actually return null
+ * (there's no real dialog to cancel) - this just gives the tests a
+ * non-nullable ref to work with without a `!` on every call. */
+function must<T>(ref: T | null): T {
 	if (!ref) {
-		throw new Error("Expected a FileRef, got null.");
+		throw new Error("Expected a non-null ref, got null.");
 	}
 	return ref;
 }
@@ -95,5 +94,80 @@ describe("MemoryStorage", () => {
 		await storage.writeText(ref, "v1");
 		await storage.writeText(ref, "v2");
 		expect(await storage.readText(ref)).toBe("v2");
+	});
+
+	test("capabilities.pickFolders is true", () => {
+		const storage = new MemoryStorage();
+		expect(storage.capabilities.pickFolders).toBe(true);
+	});
+
+	test("openWorkspace mints a fresh workspace each call by default", async () => {
+		const storage = new MemoryStorage();
+		const a = must(await storage.openWorkspace());
+		const b = must(await storage.openWorkspace());
+		expect(a.key).not.toBe(b.key);
+	});
+
+	test("writeBytes then readBytes round-trips within a workspace", async () => {
+		const storage = new MemoryStorage();
+		const workspace = must(await storage.openWorkspace());
+		const bytes = new Uint8Array([1, 2, 3, 4]);
+
+		await storage.writeBytes(workspace, "assets/thing.bin", bytes);
+		expect(await storage.readBytes(workspace, "assets/thing.bin")).toEqual(
+			bytes
+		);
+	});
+
+	test("readBytes throws for a path nothing was written to", async () => {
+		const storage = new MemoryStorage();
+		const workspace = must(await storage.openWorkspace());
+		await expect(
+			storage.readBytes(workspace, "assets/missing.bin")
+		).rejects.toThrow(/No file at/);
+	});
+
+	test("bytes written to one workspace aren't visible from another", async () => {
+		const storage = new MemoryStorage();
+		const a = must(await storage.openWorkspace());
+		const b = must(await storage.openWorkspace());
+
+		await storage.writeBytes(a, "assets/thing.bin", new Uint8Array([9]));
+		await expect(storage.readBytes(b, "assets/thing.bin")).rejects.toThrow(
+			/No file at/
+		);
+	});
+
+	test("recentWorkspaces lists opened workspaces, most recent first", async () => {
+		const storage = new MemoryStorage();
+		const first = must(await storage.openWorkspace());
+		const second = must(await storage.openWorkspace());
+
+		const recents = await storage.recentWorkspaces();
+		expect(recents.map((r) => r.workspace.key)).toEqual([
+			second.key,
+			first.key,
+		]);
+	});
+
+	test("reopening a workspace moves it to the front of recentWorkspaces", async () => {
+		const storage = new MemoryStorage();
+		const first = must(await storage.openWorkspace());
+		const second = must(await storage.openWorkspace());
+
+		storage.queueWorkspacePick(first);
+		await storage.openWorkspace();
+
+		const recents = await storage.recentWorkspaces();
+		expect(recents.map((r) => r.workspace.key)).toEqual([
+			first.key,
+			second.key,
+		]);
+	});
+
+	test("queueWorkspacePick(null) simulates the user cancelling the picker", async () => {
+		const storage = new MemoryStorage();
+		storage.queueWorkspacePick(null);
+		expect(await storage.openWorkspace()).toBeNull();
 	});
 });

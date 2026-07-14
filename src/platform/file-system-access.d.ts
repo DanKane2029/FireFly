@@ -38,6 +38,11 @@ interface SaveFilePickerOptions {
 	types?: FilePickerAcceptType[];
 }
 
+interface DirectoryPickerOptions {
+	id?: string;
+	mode?: "read" | "readwrite";
+}
+
 interface Window {
 	showOpenFilePicker?(
 		options?: OpenFilePickerOptions
@@ -45,4 +50,7 @@ interface Window {
 	showSaveFilePicker?(
 		options?: SaveFilePickerOptions
 	): Promise<FileSystemFileHandle>;
+	showDirectoryPicker?(
+		options?: DirectoryPickerOptions
+	): Promise<FileSystemDirectoryHandle>;
 }

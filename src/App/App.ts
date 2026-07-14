@@ -24,7 +24,13 @@ import { litProgram } from "../ecs/prefabs";
 import { MaterialRef } from "../ecs/components/MaterialRef";
 import { assetRegistry } from "../Assets/AssetRegistry";
 import { ShaderProgram } from "../Renderer/Shader";
-import { Storage, StorageCapabilities, FileRef } from "../platform/Storage";
+import {
+	Storage,
+	StorageCapabilities,
+	FileRef,
+	WorkspaceRef,
+	RecentWorkspaceEntry,
+} from "../platform/Storage";
 import { serializeScene } from "../Scene/serializeScene";
 import { deserializeScene } from "../Scene/deserializeScene";
 import { SceneFile } from "../Scene/SceneFile";
@@ -75,6 +81,11 @@ class App {
 	// instead of re-prompting (where the backend supports that - see
 	// Storage.capabilities.overwriteInPlace).
 	private _currentFileRef: FileRef | null;
+	// The folder imported asset bytes are read from and written to. Nothing
+	// reads or writes bytes yet (that starts with the glTF import milestone) -
+	// opening a workspace right now just remembers which one, so opening it
+	// again later shows up in recentWorkspaces().
+	private _workspace: WorkspaceRef | null;
 
 	// Per-frame simulation clock and the ordered list of update systems.
 	private _scheduler: Scheduler;
@@ -111,6 +122,7 @@ class App {
 		this._controller = new OrbitalControls();
 		this._storage = storage;
 		this._currentFileRef = null;
+		this._workspace = null;
 
 		// Update systems run in order each frame (movement/animation before the
 		// render). RenderSystem is run separately since it needs GPU resources.
@@ -283,6 +295,43 @@ class App {
 	 * from, or null for an unsaved new scene. */
 	get currentFileName(): string | null {
 		return this._currentFileRef?.name ?? null;
+	}
+
+	/** The name of the currently open workspace, or null if none is open. */
+	get currentWorkspaceName(): string | null {
+		return this._workspace?.name ?? null;
+	}
+
+	/**
+	 * Opens a workspace: on a backend with `capabilities.pickFolders`, prompts
+	 * the user to pick a folder; otherwise resolves to the one implicit
+	 * workspace that backend has. No-op if the user cancels a folder picker.
+	 */
+	async openWorkspace(): Promise<void> {
+		const ref = await this._storage.openWorkspace();
+		if (!ref) {
+			return; // user cancelled
+		}
+		this._workspace = ref;
+		this.emit();
+	}
+
+	/**
+	 * Switches to a previously opened workspace without prompting a picker -
+	 * the Storage backend resolves it (from its own in-memory cache, or, for
+	 * FileSystemAccessStorage, from IndexedDB) the next time something
+	 * actually reads or writes bytes.
+	 *
+	 * @param workspace - An entry from recentWorkspaces()
+	 */
+	openRecentWorkspace(workspace: WorkspaceRef): void {
+		this._workspace = workspace;
+		this.emit();
+	}
+
+	/** Previously opened workspaces, most recently opened first. */
+	recentWorkspaces(): Promise<RecentWorkspaceEntry[]> {
+		return this._storage.recentWorkspaces();
 	}
 
 	// --- editor UI store -----------------------------------------------------
