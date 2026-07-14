@@ -1,7 +1,6 @@
 import { vec3, vec4 } from "gl-matrix";
 import { Shader, ShaderProgram, ShaderType } from "../Renderer/Shader";
-import { Material, MaterialPropertyType } from "../Renderer/Material";
-import { Mesh } from "../Geometry/Mesh";
+import { MaterialPropertyType } from "../Renderer/Material";
 import { Sphere } from "../Geometry/Sphere";
 import { Box } from "../Geometry/Box";
 import { parseOBJ } from "../Geometry/OBJLoader";
@@ -11,17 +10,23 @@ import bunnyObj from "../../res/models/bunny.obj";
 import dragonObj from "../../res/models/dragon.obj";
 
 import { World, Entity } from "./World";
-import { Transform, TransformData, createTransform } from "./components/Transform";
+import {
+	Transform,
+	TransformData,
+	createTransform,
+} from "./components/Transform";
 import { MeshRef } from "./components/MeshRef";
 import { MaterialRef } from "./components/MaterialRef";
 import { Named } from "./components/Named";
+import { AssetId } from "../Assets/AssetId";
+import { assetRegistry } from "../Assets/AssetRegistry";
 
 /**
  * Building blocks for populating the world: shared GPU resources plus helpers
  * that spawn entities with the standard renderable components. Meshes and the
- * shader program are module singletons so they are built/compiled once and
- * shared by every entity that uses them (e.g. all snowman balls share one
- * sphere mesh).
+ * shader program are module singletons, registered once with the
+ * AssetRegistry, so they are built/compiled once and shared by every entity
+ * that uses them (e.g. all snowman balls share one sphere mesh).
  */
 
 // One shared lit shader program for every entity (compiled once on the GPU).
@@ -30,23 +35,41 @@ export const litProgram = new ShaderProgram(
 	new Shader(FragLightingShader, ShaderType.FRAGMENT)
 );
 
-/** A material that uses the shared lit program with its own color. */
-export function litMaterial(name: string, color: vec4): Material {
-	return new Material(name, litProgram, [
+/** Registers a material that uses the shared lit program with its own color,
+ * returning its asset id. */
+export function litMaterial(name: string, color: vec4): AssetId {
+	return assetRegistry.createMaterial(name, litProgram, [
 		{ type: MaterialPropertyType.VEC4, name: "u_color", value: color },
 	]);
 }
 
-// Shared geometry, built once and referenced by many entities.
-export const sphereMesh: Mesh = new Sphere(1).calculateMesh(32);
-export const boxMesh: Mesh = new Box(vec3.fromValues(2, 2, 2)).calculateMesh();
-export const bunnyMesh: Mesh = parseOBJ(bunnyObj);
-export const dragonMesh: Mesh = parseOBJ(dragonObj);
+// Shared geometry, registered once under a stable id and referenced by many
+// entities.
+export const sphereMesh: AssetId = assetRegistry.registerMesh(
+	"mesh/sphere",
+	{ kind: "primitive", primitive: "sphere" },
+	new Sphere(1).calculateMesh(32)
+);
+export const boxMesh: AssetId = assetRegistry.registerMesh(
+	"mesh/box",
+	{ kind: "primitive", primitive: "box" },
+	new Box(vec3.fromValues(2, 2, 2)).calculateMesh()
+);
+export const bunnyMesh: AssetId = assetRegistry.registerMesh(
+	"mesh/bunny",
+	{ kind: "builtin", name: "bunny" },
+	parseOBJ(bunnyObj)
+);
+export const dragonMesh: AssetId = assetRegistry.registerMesh(
+	"mesh/dragon",
+	{ kind: "builtin", name: "dragon" },
+	parseOBJ(dragonObj)
+);
 
 /** The components every drawable entity needs. */
 export interface RenderableSpec {
-	mesh: Mesh;
-	material: Material;
+	mesh: AssetId;
+	material: AssetId;
 	name?: string;
 	transform: TransformData;
 }

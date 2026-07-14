@@ -1,13 +1,15 @@
 import { defineComponent } from "../Component";
-import { Mesh } from "../../Geometry/Mesh";
+import { AssetId } from "../../Assets/AssetId";
 
 /**
- * References the geometry an entity is drawn with. Multiple entities can share
- * one Mesh (e.g. every ball of the snowman references the same sphere mesh),
- * so the geometry is uploaded to the GPU once and drawn many times.
+ * References the geometry an entity is drawn with, by asset id rather than
+ * the live `Mesh` (components hold data, not GPU handles - resolve the id
+ * through `AssetRegistry`). Multiple entities can share one mesh id (e.g.
+ * every ball of the snowman references "mesh/sphere"), so the geometry is
+ * uploaded to the GPU once and drawn many times.
  */
 export interface MeshRefData {
-	mesh: Mesh;
+	mesh: AssetId;
 }
 
 export const MeshRef = defineComponent<MeshRefData>("MeshRef");

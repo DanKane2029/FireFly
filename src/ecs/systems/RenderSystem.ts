@@ -6,6 +6,7 @@ import { Transform, transformMatrix } from "../components/Transform";
 import { MeshRef } from "../components/MeshRef";
 import { MaterialRef } from "../components/MaterialRef";
 import { PointLight } from "../components/PointLight";
+import { assetRegistry } from "../../Assets/AssetRegistry";
 
 /**
  * Everything the render pass needs from outside the ECS world: the GPU backend,
@@ -34,13 +35,16 @@ export interface RenderContext {
 export function renderSystem(world: World, context: RenderContext): void {
 	const renderables: Renderable[] = world
 		.query(Transform, MeshRef, MaterialRef)
-		.map(([entity, transform, meshRef, materialRef]) => ({
-			id: entity,
-			transform: transformMatrix(transform, mat4.create()),
-			material: materialRef.material,
-			vertexBuffer: meshRef.mesh.vertexBuffer,
-			indexBuffer: meshRef.mesh.indexBuffer,
-		}));
+		.map(([entity, transform, meshRef, materialRef]) => {
+			const mesh = assetRegistry.resolveMesh(meshRef.mesh);
+			return {
+				id: entity,
+				transform: transformMatrix(transform, mat4.create()),
+				material: assetRegistry.resolveMaterial(materialRef.material),
+				vertexBuffer: mesh.vertexBuffer,
+				indexBuffer: mesh.indexBuffer,
+			};
+		});
 
 	const lightPositions: vec3[] = world
 		.query(Transform, PointLight)
