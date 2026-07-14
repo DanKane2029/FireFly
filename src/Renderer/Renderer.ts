@@ -53,6 +53,12 @@ class Renderer {
 	private _depthBuffer: WebGLRenderbuffer;
 	private _canvasSize: vec2;
 	private _clearColor: vec4;
+	// A 1x1 white texture, always bound to TEXTURE0 before a material's own
+	// properties are applied (see setMaterial). Materials with no texture
+	// property still sample *something* through u_texture - white multiplies
+	// into albedo as a no-op - so the shader never needs a "does this
+	// material have a texture" branch or extra uniform.
+	private _defaultTexture!: Texture;
 
 	/**
 	 * Creates a new Renderer
@@ -192,6 +198,14 @@ class Renderer {
 		this.enable(this._gl.DEPTH_TEST);
 		this._gl.enable(this._gl.BLEND);
 		this._gl.blendFunc(this._gl.SRC_ALPHA, this._gl.ONE_MINUS_SRC_ALPHA);
+
+		this._defaultTexture = new Texture(
+			new Uint8ClampedArray([255, 255, 255, 255]),
+			1,
+			1
+		);
+		this.createTexture(this._defaultTexture);
+		this.loadTexture(this._defaultTexture);
 	}
 
 	/**
@@ -216,10 +230,11 @@ class Renderer {
 				this.createShaderProgram(obj.material.program);
 			}
 
-			if (!obj.vertexBuffer.layout.created) {
-				this.setVertexAttributes(
-					obj.material.program,
-					obj.vertexBuffer.layout
+			if (!obj.vertexBuffer.vaoCreated) {
+				this.createVertexArray(
+					obj.vertexBuffer,
+					obj.indexBuffer,
+					obj.material.program
 				);
 			}
 
@@ -426,15 +441,71 @@ class Renderer {
 	 * re-uploaded if ever reused. Call when the mesh it belongs to is no longer
 	 * referenced by anything in the world (e.g. an asset is unloaded).
 	 *
+	 * Also frees this buffer's vertex array object, if it has one - a VAO
+	 * captures this exact buffer's attribute bindings, so it becomes garbage
+	 * the moment the buffer it describes is gone.
+	 *
 	 * @param buffer - The vertex buffer to delete
 	 */
 	deleteVertexBuffer(buffer: VertexBuffer): void {
+		if (buffer.vaoCreated) {
+			this.deleteVertexArray(buffer);
+		}
 		if (!buffer.created) {
 			return;
 		}
 		this._gl.deleteBuffer(buffer.buffer);
 		buffer.created = false;
-		buffer.layout.created = false;
+	}
+
+	/**
+	 * Creates a vertex array object that captures a vertex buffer's attribute
+	 * pointers/enables and the paired index buffer's ELEMENT_ARRAY_BUFFER
+	 * binding, so drawing it is just `bindVertexArray` instead of re-issuing
+	 * `vertexAttribPointer`/`enableVertexAttribArray` every frame.
+	 *
+	 * This exists to close a latent bug: without a VAO per mesh, attribute
+	 * state set up for one mesh's layout stays enabled - still pointing at
+	 * that mesh's buffer with that mesh's stride - while a *different* mesh
+	 * with a different layout (e.g. one with `a_texCoord`, one without) draws
+	 * next. The symptom is intermittent geometry corruption that looks like a
+	 * shader bug. It only went unnoticed before texturing because every mesh
+	 * happened to share the identical `[a_position, a_normal]` layout.
+	 *
+	 * @param vertexBuffer - The vertex buffer to capture attribute state for
+	 * @param indexBuffer - The index buffer to capture the binding of
+	 * @param shaderProgram - The shader program whose attribute locations the
+	 * layout is resolved against (all materials currently share one program,
+	 * so this is safe to bake in at VAO-creation time)
+	 */
+	createVertexArray(
+		vertexBuffer: VertexBuffer,
+		indexBuffer: IndexBuffer,
+		shaderProgram: ShaderProgram
+	): void {
+		vertexBuffer.vao = this.assertCreated(
+			this._gl.createVertexArray(),
+			"vertex array"
+		);
+		this._gl.bindVertexArray(vertexBuffer.vao);
+		this.bindVertexBuffer(vertexBuffer);
+		this.setVertexAttributes(shaderProgram, vertexBuffer.layout);
+		this.bindIndexBuffer(indexBuffer);
+		this._gl.bindVertexArray(null);
+		vertexBuffer.vaoCreated = true;
+	}
+
+	/**
+	 * Frees a vertex array object's GPU memory and marks it uncreated.
+	 *
+	 * @param vertexBuffer - The vertex buffer whose VAO to delete
+	 */
+	deleteVertexArray(vertexBuffer: VertexBuffer): void {
+		if (!vertexBuffer.vaoCreated) {
+			return;
+		}
+		this._gl.deleteVertexArray(vertexBuffer.vao);
+		vertexBuffer.vaoCreated = false;
 	}
 
 	/**
@@ -690,7 +761,10 @@ class Renderer {
 	}
 
 	/**
-	 * Defines the vertex attributes in a vertex buffer layout in a shader program
+	 * Defines the vertex attributes in a vertex buffer layout in a shader
+	 * program. Called once per mesh, while its VAO is bound (see
+	 * createVertexArray) - the VAO captures the resulting attribute pointers
+	 * and enables, so this never needs to run again for that mesh.
 	 *
 	 * @param shaderProgram - The shader program to add the vertex attributes
 	 * @param vertexLayout - The layout of the attributes to define in the shader program
@@ -729,7 +803,6 @@ class Renderer {
 
 			offset += this.getTypeSize(type) * size;
 		});
-		vertexLayout.created = true;
 	}
 
 	/**
@@ -782,6 +855,33 @@ class Renderer {
 			data
 		);
 		this._gl.generateMipmap(this._gl.TEXTURE_2D);
+
+		// The WebGL default sampler state (REPEAT wrap, a mipmapped min filter)
+		// is exactly what generateMipmap above expects, but it's still worth
+		// being explicit rather than relying on defaults: CLAMP_TO_EDGE avoids
+		// seams at UV 0/1 for a non-tiling texture, and naming the filters here
+		// is what makes it obvious mipmaps are assumed to exist.
+		this._gl.texParameteri(
+			this._gl.TEXTURE_2D,
+			this._gl.TEXTURE_WRAP_S,
+			this._gl.CLAMP_TO_EDGE
+		);
+		this._gl.texParameteri(
+			this._gl.TEXTURE_2D,
+			this._gl.TEXTURE_WRAP_T,
+			this._gl.CLAMP_TO_EDGE
+		);
+		this._gl.texParameteri(
+			this._gl.TEXTURE_2D,
+			this._gl.TEXTURE_MIN_FILTER,
+			this._gl.LINEAR_MIPMAP_LINEAR
+		);
+		this._gl.texParameteri(
+			this._gl.TEXTURE_2D,
+			this._gl.TEXTURE_MAG_FILTER,
+			this._gl.LINEAR
+		);
+
 		texture.loaded = true;
 	}
 
@@ -807,6 +907,14 @@ class Renderer {
 	setMaterial(material: Material) {
 		const shaderProgram: ShaderProgram = material.program;
 		this.useProgram(shaderProgram);
+
+		// Always bind the default white texture to TEXTURE0 first, so
+		// u_texture is never left pointing at whatever the previously-drawn
+		// material happened to bind. A material with its own TEXTURE property
+		// overwrites this binding below.
+		this._gl.activeTexture(this._gl.TEXTURE0);
+		this.bindTexture(this._defaultTexture);
+		this.setUniform1i(shaderProgram, "u_texture", 0);
 
 		material.properties.forEach((property: MaterialProperty) => {
 			const { name, value } = property;
@@ -950,23 +1058,24 @@ class Renderer {
 	}
 
 	/**
-	 * Binds the buffers and material associated with a renderable so it can be drawn
+	 * Binds the buffers and material associated with a renderable so it can be
+	 * drawn. Binding the vertex array object is what actually establishes the
+	 * vertex/index buffer bindings and attribute pointers - see
+	 * createVertexArray - so this no longer re-issues per-attribute GL calls
+	 * every draw.
 	 *
 	 * @param obj - The renderable to bind
 	 */
 	bindRenderable(obj: Renderable): void {
-		this.bindVertexBuffer(obj.vertexBuffer);
-		this.setVertexAttributes(obj.material.program, obj.vertexBuffer.layout);
-		this.bindIndexBuffer(obj.indexBuffer);
+		this._gl.bindVertexArray(obj.vertexBuffer.vao);
 		this.setMaterial(obj.material);
 	}
 
 	/**
-	 * Unbinds all buffers and shaders
+	 * Unbinds the vertex array object and shader.
 	 */
 	unbindRenderable(): void {
-		this.unbindVertexBuffer();
-		this.unbindIndexBuffer();
+		this._gl.bindVertexArray(null);
 		this.dropProgram();
 	}
 

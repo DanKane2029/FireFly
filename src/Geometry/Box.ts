@@ -1,5 +1,5 @@
 import { ParameterizedGeometry } from "./ParameterizedGeometry";
-import { vec3 } from "gl-matrix";
+import { vec2, vec3 } from "gl-matrix";
 
 import { Mesh } from "./Mesh";
 import { Vertex } from "./Vertex";
@@ -53,115 +53,158 @@ class Box extends ParameterizedGeometry {
 				type: VertexTypes.FLOAT,
 				normalized: true,
 			},
+			{
+				name: "a_texCoord",
+				size: 2,
+				type: VertexTypes.FLOAT,
+				normalized: false,
+			},
 		]);
+
+		// Each face's 4 vertices are listed in the same relative winding (see
+		// the indicesList triangle pattern below: [a,b,c],[a,c,d]), so mapping
+		// this same corner sequence onto every face gives each one a full,
+		// undistorted [0,1]x[0,1] UV square - not a real unwrap (a texture
+		// isn't continuous across edges), but correct and simple for a
+		// primitive whose faces are otherwise interchangeable.
+		const FACE_UVS: vec2[] = [
+			[0, 0],
+			[0, 1],
+			[1, 1],
+			[1, 0],
+		];
 
 		const vertexList: Vertex[] = [
 			// back face
 			{
 				position: [-halfWidth, halfHeight, -halfDepth],
 				normal: [0, 0, -1],
+				textureCoord: FACE_UVS[0],
 			},
 			{
 				position: [-halfWidth, -halfHeight, -halfDepth],
 				normal: [0, 0, -1],
+				textureCoord: FACE_UVS[1],
 			},
 			{
 				position: [halfWidth, -halfHeight, -halfDepth],
 				normal: [0, 0, -1],
+				textureCoord: FACE_UVS[2],
 			},
 			{
 				position: [halfWidth, halfHeight, -halfDepth],
 				normal: [0, 0, -1],
+				textureCoord: FACE_UVS[3],
 			},
 
 			// top face
 			{
 				position: [-halfWidth, halfHeight, -halfDepth],
 				normal: [0, 1, 0],
+				textureCoord: FACE_UVS[0],
 			},
 			{
 				position: [-halfWidth, halfHeight, halfDepth],
 				normal: [0, 1, 0],
+				textureCoord: FACE_UVS[1],
 			},
 			{
 				position: [halfWidth, halfHeight, halfDepth],
 				normal: [0, 1, 0],
+				textureCoord: FACE_UVS[2],
 			},
 			{
 				position: [halfWidth, halfHeight, -halfDepth],
 				normal: [0, 1, 0],
+				textureCoord: FACE_UVS[3],
 			},
 
 			// front face
 			{
 				position: [-halfWidth, halfHeight, halfDepth],
 				normal: [0, 0, 1],
+				textureCoord: FACE_UVS[0],
 			},
 			{
 				position: [-halfWidth, -halfHeight, halfDepth],
 				normal: [0, 0, 1],
+				textureCoord: FACE_UVS[1],
 			},
 			{
 				position: [halfWidth, -halfHeight, halfDepth],
 				normal: [0, 0, 1],
+				textureCoord: FACE_UVS[2],
 			},
 			{
 				position: [halfWidth, halfHeight, halfDepth],
 				normal: [0, 0, 1],
+				textureCoord: FACE_UVS[3],
 			},
 
 			// bottom face
 			{
 				position: [-halfWidth, -halfHeight, -halfDepth],
 				normal: [0, -1, 0],
+				textureCoord: FACE_UVS[0],
 			},
 			{
 				position: [-halfWidth, -halfHeight, halfDepth],
 				normal: [0, -1, 0],
+				textureCoord: FACE_UVS[1],
 			},
 			{
 				position: [halfWidth, -halfHeight, halfDepth],
 				normal: [0, -1, 0],
+				textureCoord: FACE_UVS[2],
 			},
 			{
 				position: [halfWidth, -halfHeight, -halfDepth],
 				normal: [0, -1, 0],
+				textureCoord: FACE_UVS[3],
 			},
 
 			// right face
 			{
 				position: [halfWidth, halfHeight, halfDepth],
 				normal: [1, 0, 0],
+				textureCoord: FACE_UVS[0],
 			},
 			{
 				position: [halfWidth, -halfHeight, halfDepth],
 				normal: [1, 0, 0],
+				textureCoord: FACE_UVS[1],
 			},
 			{
 				position: [halfWidth, -halfHeight, -halfDepth],
 				normal: [1, 0, 0],
+				textureCoord: FACE_UVS[2],
 			},
 			{
 				position: [halfWidth, halfHeight, -halfDepth],
 				normal: [1, 0, 0],
+				textureCoord: FACE_UVS[3],
 			},
 
 			// left face
 			{
 				position: [-halfWidth, halfHeight, -halfDepth],
 				normal: [-1, 0, 0],
+				textureCoord: FACE_UVS[0],
 			},
 			{
 				position: [-halfWidth, -halfHeight, -halfDepth],
 				normal: [-1, 0, 0],
+				textureCoord: FACE_UVS[1],
 			},
 			{
 				position: [-halfWidth, -halfHeight, halfDepth],
 				normal: [-1, 0, 0],
+				textureCoord: FACE_UVS[2],
 			},
 			{
 				position: [-halfWidth, halfHeight, halfDepth],
 				normal: [-1, 0, 0],
+				textureCoord: FACE_UVS[3],
 			},
 		];
 

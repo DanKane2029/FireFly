@@ -13,8 +13,17 @@ describe("Sphere geometry", () => {
 	const vertexCount = (detail + 1) * detail;
 
 	test("has (detail + 1) * detail vertices, no duplicated seam column", () => {
-		// 6 floats per vertex (position + normal).
-		expect(mesh.vertexBuffer.vertices.length).toBe(vertexCount * 6);
+		// 8 floats per vertex (position + normal + texCoord).
+		expect(mesh.vertexBuffer.vertices.length).toBe(vertexCount * 8);
+	});
+
+	test("UVs run 0..1 across longitude and 0..1 (pole to pole) across latitude", () => {
+		const columns = detail;
+		// First ring (north pole, theta=0) should have v=0; last ring (south
+		// pole, theta=pi) should have v=1. First column (phi=0) should have u=0.
+		expect(Array.from(mesh.vertexList[0].textureCoord ?? [])).toEqual([0, 0]);
+		const lastRingFirstCol = detail * columns; // row `detail`, column 0
+		expect(mesh.vertexList[lastRingFirstCol].textureCoord?.[1]).toBeCloseTo(1);
 	});
 
 	test("every index refers to a real vertex", () => {
@@ -45,12 +54,26 @@ describe("Sphere geometry", () => {
 describe("Box geometry", () => {
 	const mesh = new Box([2, 2, 2]).calculateMesh();
 
-	test("has 24 vertices (4 per face) interleaved as position + normal", () => {
-		expect(mesh.vertexBuffer.vertices.length).toBe(24 * 6);
+	test("has 24 vertices (4 per face) interleaved as position + normal + texCoord", () => {
+		expect(mesh.vertexBuffer.vertices.length).toBe(24 * 8);
 	});
 
 	test("has 12 triangles (36 indices)", () => {
 		expect(mesh.indexBuffer.indices.length).toBe(36);
+	});
+
+	test("every face gets a full [0,1]x[0,1] UV square", () => {
+		for (let face = 0; face < 6; face++) {
+			const corners = mesh.vertexList
+				.slice(face * 4, face * 4 + 4)
+				.map((v) => v.textureCoord);
+			expect(corners).toEqual([
+				[0, 0],
+				[0, 1],
+				[1, 1],
+				[1, 0],
+			]);
+		}
 	});
 });
 

@@ -1,4 +1,4 @@
-import { vec3 } from "gl-matrix";
+import { vec2, vec3 } from "gl-matrix";
 import { toCatesianCoord } from "../Math/SphericalCoordinates";
 import { VertexBufferLayout, VertexTypes } from "../Renderer/Buffer";
 import { Mesh } from "./Mesh";
@@ -82,14 +82,28 @@ class Sphere extends ParameterizedGeometry {
 			}
 		}
 
-		const vertexList: Vertex[] = spherePoints.flat().map((p: vec3) => {
+		const vertexList: Vertex[] = spherePoints.flat().map((p: vec3, i: number) => {
 			// For a sphere centred at the origin, the outward surface normal at
 			// a point is simply that point's position normalized.
 			const normal = vec3.create();
 			vec3.normalize(normal, p);
+
+			// Standard UV-sphere mapping: longitude (phi, 0..2*pi) becomes u,
+			// latitude (theta, 0..pi) becomes v. v=0 at theta=0 (the north
+			// pole) puts the top of the sphere at the top of the texture,
+			// matching the glTF top-left UV origin this renderer has standardized
+			// on (see Renderer.loadTexture / the fragment shader).
+			const row = Math.floor(i / columns);
+			const col = i % columns;
+			const textureCoord = vec2.fromValues(
+				phis[col] / (Math.PI * 2),
+				thetas[row] / Math.PI
+			);
+
 			return {
 				position: p,
 				normal: normal,
+				textureCoord: textureCoord,
 			};
 		});
 
@@ -105,6 +119,12 @@ class Sphere extends ParameterizedGeometry {
 				size: 3,
 				type: VertexTypes.FLOAT,
 				normalized: true,
+			},
+			{
+				name: "a_texCoord",
+				size: 2,
+				type: VertexTypes.FLOAT,
+				normalized: false,
 			},
 		]);
 
