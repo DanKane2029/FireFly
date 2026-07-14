@@ -12,6 +12,13 @@ class VertexBuffer {
 	private _buffer!: WebGLBuffer;
 	private _layout: VertexBufferLayout;
 	private _created: boolean;
+	// Assigned by the Renderer the first time this buffer is drawn. Captures
+	// this buffer's attribute pointers/enables and the paired index buffer's
+	// binding, so a draw is just "bind this VAO" instead of re-issuing
+	// vertexAttribPointer/enableVertexAttribArray every frame - see
+	// Renderer.createVertexArray.
+	private _vao!: WebGLVertexArrayObject;
+	private _vaoCreated: boolean;
 
 	/**
 	 * Creates a Vertex Buffer
@@ -23,6 +30,7 @@ class VertexBuffer {
 		this._vertices = vertices;
 		this._layout = layout;
 		this._created = false;
+		this._vaoCreated = false;
 	}
 
 	/**
@@ -79,6 +87,35 @@ class VertexBuffer {
 	 */
 	set created(created: boolean) {
 		this._created = created;
+	}
+
+	/**
+	 * Gets the WebGL vertex array object that captures this buffer's attribute
+	 * setup (and the paired index buffer's binding).
+	 */
+	get vao(): WebGLVertexArrayObject {
+		return this._vao;
+	}
+
+	/**
+	 * Sets the WebGL vertex array object
+	 */
+	set vao(vao: WebGLVertexArrayObject) {
+		this._vao = vao;
+	}
+
+	/**
+	 * Returns true if the vertex array object has been created already
+	 */
+	get vaoCreated(): boolean {
+		return this._vaoCreated;
+	}
+
+	/**
+	 * Sets the vaoCreated value
+	 */
+	set vaoCreated(vaoCreated: boolean) {
+		this._vaoCreated = vaoCreated;
 	}
 }
 
@@ -181,7 +218,6 @@ interface VertexLayout {
  */
 class VertexBufferLayout {
 	private _layout: VertexLayout[];
-	private _created: boolean;
 
 	/**
 	 * Creates a vertex buffer layout
@@ -190,7 +226,6 @@ class VertexBufferLayout {
 	 */
 	constructor(layout: VertexLayout[]) {
 		this._layout = layout;
-		this._created = false;
 	}
 
 	/**
@@ -198,20 +233,6 @@ class VertexBufferLayout {
 	 */
 	get layout(): VertexLayout[] {
 		return this._layout;
-	}
-
-	/**
-	 * Returns true if the buffer has been created already in the WebGL context
-	 */
-	get created(): boolean {
-		return this._created;
-	}
-
-	/**
-	 * Sets the created value
-	 */
-	set created(created: boolean) {
-		this._created = created;
 	}
 }
 

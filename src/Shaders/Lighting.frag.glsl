@@ -46,7 +46,12 @@ void main(void) {
 		totalLightValue += lightVal;
 	}
 
-	vec3 lightColor = u_color.xyz * totalLightValue;
+	// Sampled unconditionally: a material with no texture of its own still
+	// has u_texture bound to a 1x1 white pixel (see Renderer.setMaterial), so
+	// this multiply is a no-op rather than needing a "has a texture" branch.
+	vec3 albedo = u_color.xyz * texture(u_texture, v_texCoord).rgb;
+
+	vec3 lightColor = albedo * totalLightValue;
 	fragColor = vec4(lightColor + u_ambientLight, u_color.a);
 
 	// Second render target: write this object's id for GPU picking.
