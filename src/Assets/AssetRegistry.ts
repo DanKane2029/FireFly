@@ -145,6 +145,31 @@ class AssetRegistry {
 		return id;
 	}
 
+	/**
+	 * Registers a material under a caller-chosen id, overwriting whatever was
+	 * there before. Deserialization only: `createMaterial` mints a fresh id for
+	 * a brand-new material, but loading a `.ffscene` must reproduce the exact
+	 * ids its `MaterialRef` components reference, so this upserts instead of
+	 * throwing on a duplicate id - the file re-describing an id it already
+	 * described (e.g. reloading the same scene) is the expected case, not an
+	 * error.
+	 */
+	restoreMaterial(
+		id: AssetId,
+		name: string,
+		program: ShaderProgram,
+		properties: MaterialProperty[]
+	): AssetId {
+		const live = new Material(name, program, properties.map(cloneProperty));
+		const descriptor: MaterialDescriptor = {
+			shader: "lit",
+			name,
+			properties: properties.map(cloneProperty),
+		};
+		this._materials.set(id, { descriptor, live });
+		return id;
+	}
+
 	/** Resolves a material id to its live `Material`. */
 	resolveMaterial(id: AssetId): Material {
 		return this.materialEntry(id).live;

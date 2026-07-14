@@ -61,6 +61,28 @@ describe("World entities and components", () => {
 		expect(world.has(e, Position)).toBe(false);
 		expect(world.size).toBe(0);
 	});
+
+	test("entities() lists every alive entity", () => {
+		const world = new World();
+		const a = world.create();
+		const b = world.create();
+		expect(world.entities().sort()).toEqual([a, b].sort());
+	});
+
+	test("createWith preserves a caller-chosen id, for deserialization", () => {
+		const world = new World();
+		world.create(); // id 1
+		const restored = world.createWith(42);
+		expect(restored).toBe(42);
+		expect(world.isAlive(42)).toBe(true);
+	});
+
+	test("createWith bumps the id counter so a later create() never collides", () => {
+		const world = new World();
+		world.createWith(42);
+		const next = world.create();
+		expect(next).toBeGreaterThan(42);
+	});
 });
 
 describe("World queries", () => {

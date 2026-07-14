@@ -72,6 +72,21 @@ class Camera {
 	}
 
 	/**
+	 * Gets the vertical field of view, in degrees.
+	 */
+	get fovy(): number {
+		return this._fovy;
+	}
+
+	/**
+	 * Sets the vertical field of view, in degrees.
+	 */
+	set fovy(fovy: number) {
+		this._fovy = fovy;
+		this._perspectiveDirty = true;
+	}
+
+	/**
 	 * Gets the perspective matrix of the camera. Rebuilt only when the
 	 * field-of-view, aspect ratio, or clip planes change.
 	 */

@@ -183,6 +183,31 @@ describe("AssetRegistry materials", () => {
 		expect(bColor?.value).toEqual([1, 0, 0, 1]);
 	});
 
+	test("restoreMaterial upserts under a caller-chosen id, for deserialization", () => {
+		const registry = new AssetRegistry();
+		const program = stubProgram();
+
+		registry.restoreMaterial("mat/1", "Ball", program, [
+			{ type: MaterialPropertyType.VEC4, name: "u_color", value: [1, 0, 0, 1] },
+		]);
+		expect(
+			registry
+				.resolveMaterial("mat/1")
+				.properties.find((p) => p.name === "u_color")?.value
+		).toEqual([1, 0, 0, 1]);
+
+		// Loading the same scene twice (or re-loading after edits) must not
+		// throw on the id already being registered - it should just replace it.
+		registry.restoreMaterial("mat/1", "Ball", program, [
+			{ type: MaterialPropertyType.VEC4, name: "u_color", value: [0, 1, 0, 1] },
+		]);
+		expect(
+			registry
+				.resolveMaterial("mat/1")
+				.properties.find((p) => p.name === "u_color")?.value
+		).toEqual([0, 1, 0, 1]);
+	});
+
 	test("disposeMaterial drops the entry", () => {
 		const registry = new AssetRegistry();
 		const id = registry.createMaterial("Ball", stubProgram(), [
