@@ -33,6 +33,26 @@ export class World {
 		return entity;
 	}
 
+	/**
+	 * Creates an entity with a caller-chosen id instead of the next counter
+	 * value. Deserialization only - it is what lets a loaded scene's entity ids
+	 * (and anything that references them, e.g. a future `Parent` component)
+	 * survive a save/load round trip unchanged. Bumps the id counter if needed
+	 * so a later `create()` never collides with a restored id.
+	 */
+	createWith(entity: Entity): Entity {
+		this._alive.add(entity);
+		if (entity >= this._nextEntity) {
+			this._nextEntity = entity + 1;
+		}
+		return entity;
+	}
+
+	/** Every currently alive entity id, in no particular order. */
+	entities(): Entity[] {
+		return Array.from(this._alive);
+	}
+
 	/** Destroys an entity and removes all of its components. */
 	destroy(entity: Entity): void {
 		this._alive.delete(entity);

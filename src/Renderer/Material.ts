@@ -22,6 +22,38 @@ enum MaterialPropertyType {
 type MaterialPropertyValue = [number] | vec2 | vec3 | vec4 | mat4 | Texture;
 
 /**
+ * String names for MaterialPropertyType, keyed by the enum's numeric value.
+ * A `.ffscene` file must serialize the type as one of these strings, never the
+ * raw enum number - the number is just this array's index, so renumbering the
+ * enum (adding a new type in the middle, say) would silently corrupt every
+ * saved file that used the numbers directly.
+ */
+const MATERIAL_PROPERTY_TYPE_NAMES: Record<MaterialPropertyType, string> = {
+	[MaterialPropertyType.SCALAR]: "scalar",
+	[MaterialPropertyType.VEC2]: "vec2",
+	[MaterialPropertyType.VEC3]: "vec3",
+	[MaterialPropertyType.VEC4]: "vec4",
+	[MaterialPropertyType.MAT4]: "mat4",
+	[MaterialPropertyType.TEXTURE]: "texture",
+};
+
+/** Converts a MaterialPropertyType to its serializable string name. */
+function materialPropertyTypeToString(type: MaterialPropertyType): string {
+	return MATERIAL_PROPERTY_TYPE_NAMES[type];
+}
+
+/** Converts a serialized string name back to a MaterialPropertyType. */
+function materialPropertyTypeFromString(name: string): MaterialPropertyType {
+	const entry = Object.entries(MATERIAL_PROPERTY_TYPE_NAMES).find(
+		([, value]) => value === name
+	);
+	if (!entry) {
+		throw new Error(`Unknown material property type "${name}".`);
+	}
+	return Number(entry[0]) as MaterialPropertyType;
+}
+
+/**
  * Object that describes a material property
  */
 interface MaterialProperty {
@@ -156,4 +188,11 @@ class Material {
 	}
 }
 
-export { Material, MaterialProperty, MaterialPropertyType };
+export {
+	Material,
+	MaterialProperty,
+	MaterialPropertyType,
+	MaterialPropertyValue,
+	materialPropertyTypeToString,
+	materialPropertyTypeFromString,
+};

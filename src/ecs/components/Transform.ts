@@ -1,5 +1,6 @@
 import { mat4, quat, vec3 } from "gl-matrix";
 import { defineComponent } from "../Component";
+import { Vec3JSON, vec3FromJSON, vec3ToJSON } from "../../Math/VectorCodec";
 
 /**
  * Where an entity sits in the world: its position, orientation (Euler angles in
@@ -45,4 +46,30 @@ export function transformMatrix(transform: TransformData, out: mat4): mat4 {
 		transform.translation,
 		transform.scale
 	);
+}
+
+/** A Transform's JSON shape in a `.ffscene` file. */
+export interface TransformJSON {
+	translation: Vec3JSON;
+	rotation: Vec3JSON;
+	scale: Vec3JSON;
+}
+
+/** Encodes a TransformData for `.ffscene` (see Math/VectorCodec for why this
+ * can't just be `JSON.stringify(data)`). */
+export function transformToJSON(data: TransformData): TransformJSON {
+	return {
+		translation: vec3ToJSON(data.translation),
+		rotation: vec3ToJSON(data.rotation),
+		scale: vec3ToJSON(data.scale),
+	};
+}
+
+/** Decodes a Transform from its `.ffscene` JSON shape. */
+export function transformFromJSON(json: TransformJSON): TransformData {
+	return {
+		translation: vec3FromJSON(json.translation),
+		rotation: vec3FromJSON(json.rotation),
+		scale: vec3FromJSON(json.scale),
+	};
 }
