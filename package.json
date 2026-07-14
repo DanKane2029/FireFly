@@ -1,8 +1,8 @@
 {
-	"name": "web-template",
+	"name": "firefly",
 	"version": "1.0.0",
-	"description": "tempalte for web based projects",
-	"main": "index.js",
+	"description": "A WebGL2 renderer in TypeScript, with a React + dockview editor UI around it.",
+	"main": "dist/index.js",
 	"scripts": {
 		"format": "npx prettier --write src/",
 		"lint": "npx eslint -c .eslintrc.json --ext ts,tsx --fix ./src",

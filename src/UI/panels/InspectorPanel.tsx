@@ -1,9 +1,13 @@
 import { ChangeEvent } from "react";
 import { Box, Stack, Typography } from "@mui/material";
 import { useEditorStore } from "../EngineContext";
-import { MaterialProperty, MaterialPropertyType } from "../../Renderer/Material";
+import {
+	MaterialProperty,
+	MaterialPropertyType,
+} from "../../Renderer/Material";
 import { MaterialRef } from "../../ecs/components/MaterialRef";
 import { Named } from "../../ecs/components/Named";
+import { assetRegistry } from "../../Assets/AssetRegistry";
 
 /** Formats a 0..1 rgb(a) color as a "#rrggbb" hex string for <input type=color>. */
 function toHex(color: ArrayLike<number>): string {
@@ -40,7 +44,7 @@ export function InspectorPanel() {
 		);
 	}
 
-	const material = materialRef.material;
+	const material = assetRegistry.resolveMaterial(materialRef.material);
 	const named = app.world.get(entity, Named);
 	const colorProp = material.properties.find(
 		(prop: MaterialProperty) =>
@@ -67,9 +71,14 @@ export function InspectorPanel() {
 						value={toHex(colorProp.value as ArrayLike<number>)}
 						onChange={(event: ChangeEvent<HTMLInputElement>) => {
 							const [r, g, b] = fromHex(event.target.value);
-							const current = colorProp.value as ArrayLike<number>;
+							const current =
+								colorProp.value as ArrayLike<number>;
 							const alpha = current[3] ?? 1;
-							material.setProperty("u_color", [r, g, b, alpha]);
+							assetRegistry.setMaterialProperty(
+								materialRef.material,
+								"u_color",
+								[r, g, b, alpha]
+							);
 							app.notifyChanged();
 						}}
 						sx={{

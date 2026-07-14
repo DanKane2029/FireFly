@@ -20,6 +20,8 @@ import {
 	spawnDragon,
 	spawnDefaultLights,
 } from "../ecs/scenes";
+import { MaterialRef } from "../ecs/components/MaterialRef";
+import { assetRegistry } from "../Assets/AssetRegistry";
 
 /**
  * The selectable test scenes, each a function that populates the ECS world with
@@ -385,6 +387,15 @@ class App {
 	 * @param name - A key of SCENES ("snowman", "bunny", or "dragon").
 	 */
 	loadScene(name: keyof typeof SCENES): void {
+		// Every entity's material is minted fresh for it alone (see
+		// AssetRegistry.createMaterial), so nothing else references it once the
+		// world is cleared. Drop it here or the registry grows forever as scenes
+		// are switched. Meshes are shared built-ins and are never disposed.
+		const renderer = this.isAttached ? this._renderer : undefined;
+		this._world.query(MaterialRef).forEach(([, materialRef]) => {
+			assetRegistry.disposeMaterial(renderer, materialRef.material);
+		});
+
 		this._world.clear();
 		// Lights are entities too, so clearing the world unlights it - every scene
 		// spawns the shared rig before its own contents.
