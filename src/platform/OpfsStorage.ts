@@ -2,25 +2,40 @@ import {
 	FileRef,
 	PickOpenFileOptions,
 	PickSaveFileOptions,
+	RecentWorkspaceEntry,
 	Storage,
 	StorageCapabilities,
+	WorkspaceRef,
 } from "./Storage";
+import {
+	readBytesFromDirectory,
+	writeBytesToDirectory,
+} from "./directoryHandle";
 
 /**
  * The Firefox/Safari fallback: neither ships the File System Access API
- * (see FileSystemAccessStorage), so "Open" is a plain `<input type=file>`
- * and "Save" is a Blob download - there is no real handle to write back to,
- * so every save re-downloads rather than overwriting in place.
+ * (see FileSystemAccessStorage), so scene "Open" is a plain
+ * `<input type=file>` and "Save" is a Blob download - there is no real
+ * handle to write back to, so every save re-downloads rather than
+ * overwriting in place.
  *
- * Named for where this is going, not just what M4 needs: once the workspace
- * milestone adds imported asset bytes, this backend is what gives them a
- * real home via the Origin Private File System, keeping the web build
- * genuinely functional (not just a degraded demo) on non-Chromium browsers.
- * For now - text-only save/open - it doesn't touch OPFS at all.
+ * Asset bytes are different: those go through the Origin Private File
+ * System (`navigator.storage.getDirectory()`), which both browsers do ship,
+ * so imported assets still get a real, persistent home here - keeping the
+ * web build genuinely functional (not just a degraded demo) on non-Chromium
+ * browsers. There is exactly one implicit workspace (the OPFS root); unlike
+ * FileSystemAccessStorage there is nothing to pick between, so
+ * `capabilities.pickFolders` is false and `openWorkspace()` never prompts.
  */
 export class OpfsStorage implements Storage {
 	readonly capabilities: StorageCapabilities = {
 		overwriteInPlace: false,
+		pickFolders: false,
+	};
+
+	private static readonly ROOT_WORKSPACE: WorkspaceRef = {
+		key: "opfs-root",
+		name: "Browser storage",
 	};
 
 	private _uploadedFiles = new Map<string, File>();
@@ -73,5 +88,48 @@ export class OpfsStorage implements Storage {
 		const key = `upload/${file.name}`;
 		this._uploadedFiles.set(key, file);
 		return { key, name: file.name };
+	}
+
+	private _lastOpened: number | null = null;
+
+	async openWorkspace(): Promise<WorkspaceRef | null> {
+		this._lastOpened = Date.now();
+		return OpfsStorage.ROOT_WORKSPACE;
+	}
+
+	async recentWorkspaces(): Promise<RecentWorkspaceEntry[]> {
+		if (this._lastOpened === null) {
+			return [];
+		}
+		return [
+			{
+				workspace: OpfsStorage.ROOT_WORKSPACE,
+				lastOpened: this._lastOpened,
+			},
+		];
+	}
+
+	// `workspace` isn't consulted - there's exactly one (the OPFS root), so
+	// every WorkspaceRef this backend ever hands out already refers to it.
+	async readBytes(
+		_workspace: WorkspaceRef,
+		relativePath: string
+	): Promise<Uint8Array> {
+		return readBytesFromDirectory(
+			await navigator.storage.getDirectory(),
+			relativePath
+		);
+	}
+
+	async writeBytes(
+		_workspace: WorkspaceRef,
+		relativePath: string,
+		bytes: Uint8Array
+	): Promise<void> {
+		await writeBytesToDirectory(
+			await navigator.storage.getDirectory(),
+			relativePath,
+			bytes
+		);
 	}
 }

@@ -6,11 +6,13 @@ import {
 	Button,
 	Menu,
 	MenuItem,
+	Divider,
 	Box,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import { PANEL_TYPES, PanelType } from "./panels/registry";
 import { useApp } from "./EngineContext";
+import { RecentWorkspaceEntry } from "../platform/Storage";
 
 /**
  * New/Open/Save/Save As, backed by App's Storage-driven scene methods. A
@@ -71,6 +73,70 @@ function FileMenu() {
 	);
 }
 
+/**
+ * Open a workspace (a folder imported asset bytes will be read from and
+ * written to - see App.openWorkspace) and reopen a recent one. Nothing
+ * consumes those bytes yet (that starts with the glTF import milestone),
+ * so this is the workspace concept on its own: pick one, see it remembered
+ * across a reload.
+ */
+function WorkspaceMenu() {
+	const app = useApp();
+	const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+	const [recents, setRecents] = useState<RecentWorkspaceEntry[]>([]);
+
+	const openMenu = (event: MouseEvent<HTMLElement>) => {
+		setAnchor(event.currentTarget);
+		app.recentWorkspaces().then(setRecents);
+	};
+
+	const runAndClose = (action: () => void | Promise<void>) => {
+		setAnchor(null);
+		Promise.resolve(action()).catch((err) => {
+			console.error(err);
+			window.alert(err instanceof Error ? err.message : String(err));
+		});
+	};
+
+	return (
+		<>
+			<Button
+				size="small"
+				onClick={openMenu}
+				sx={{ color: "text.primary" }}
+			>
+				Workspace
+			</Button>
+			<Menu
+				anchorEl={anchor}
+				open={Boolean(anchor)}
+				onClose={() => setAnchor(null)}
+			>
+				<MenuItem
+					onClick={() => runAndClose(() => app.openWorkspace())}
+				>
+					{app.storageCapabilities.pickFolders
+						? "Open Workspace…"
+						: "Use Browser Storage"}
+				</MenuItem>
+				{recents.length > 0 && <Divider />}
+				{recents.map((entry) => (
+					<MenuItem
+						key={entry.workspace.key}
+						onClick={() =>
+							runAndClose(() =>
+								app.openRecentWorkspace(entry.workspace)
+							)
+						}
+					>
+						{entry.workspace.name}
+					</MenuItem>
+				))}
+			</Menu>
+		</>
+	);
+}
+
 interface NavBarProps {
 	/** Called when the user picks a panel type to add from the menu. */
 	onAddPanel: (type: PanelType) => void;
@@ -123,6 +189,7 @@ export function NavBar({ onAddPanel }: NavBarProps) {
 				</Typography>
 
 				<FileMenu />
+				<WorkspaceMenu />
 
 				<Box sx={{ flex: 1 }} />
 

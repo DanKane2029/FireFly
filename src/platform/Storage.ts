@@ -4,9 +4,6 @@
  * it's running in Chrome, Firefox/Safari, or (eventually) Electron. See
  * docs/scene-creator-roadmap.md's "storage abstraction" section for the full
  * reasoning.
- *
- * Text I/O only for now (M4 - "Save/load working on the web"). Asset bytes
- * and recent-workspace tracking are the workspace milestone's job.
  */
 
 /**
@@ -22,6 +19,23 @@ export interface FileRef {
 }
 
 /**
+ * An opaque handle to a workspace: a folder imported asset bytes are read
+ * from and written to, relative to its root. Opaque for the same reason a
+ * `FileRef` is - never a path.
+ */
+export interface WorkspaceRef {
+	readonly key: string;
+	readonly name: string;
+}
+
+/** A previously opened workspace, for a "recent workspaces" list. */
+export interface RecentWorkspaceEntry {
+	readonly workspace: WorkspaceRef;
+	/** Epoch milliseconds, so a UI can sort/format it however it likes. */
+	readonly lastOpened: number;
+}
+
+/**
  * What this backend can actually do. The one honest leak in an otherwise
  * platform-blind interface: rather than `if (isElectron)` scattered through
  * the UI, callers read `capabilities.overwriteInPlace` to decide whether a
@@ -33,6 +47,10 @@ export interface StorageCapabilities {
 	 * points at. False on the download-based Firefox/Safari fallback - there
 	 * every "save" is really a fresh download. */
 	overwriteInPlace: boolean;
+	/** Whether openWorkspace() shows a real folder-picker dialog. False on
+	 * the OPFS backend, which has exactly one implicit workspace (the
+	 * origin's private root) and nothing to pick between. */
+	pickFolders: boolean;
 }
 
 export interface PickOpenFileOptions {
@@ -58,4 +76,29 @@ export interface Storage {
 
 	readText(ref: FileRef): Promise<string>;
 	writeText(ref: FileRef, text: string): Promise<void>;
+
+	/** Opens a workspace: where `capabilities.pickFolders` is true, prompts
+	 * the user to pick a folder; where it's false, resolves to the one
+	 * implicit workspace this backend has. Resolves to null if the user
+	 * cancels a folder picker. Also records the workspace in
+	 * `recentWorkspaces()`. */
+	openWorkspace(): Promise<WorkspaceRef | null>;
+
+	/** Previously opened workspaces, most recently opened first. */
+	recentWorkspaces(): Promise<RecentWorkspaceEntry[]>;
+
+	/** Reads an asset's bytes from a workspace-relative path (e.g.
+	 * "assets/4b7e-wood.png"). */
+	readBytes(
+		workspace: WorkspaceRef,
+		relativePath: string
+	): Promise<Uint8Array>;
+
+	/** Writes an asset's bytes to a workspace-relative path, creating any
+	 * intermediate directories the path names. */
+	writeBytes(
+		workspace: WorkspaceRef,
+		relativePath: string,
+		bytes: Uint8Array
+	): Promise<void>;
 }
