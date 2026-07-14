@@ -1,5 +1,5 @@
-import { ChangeEvent } from "react";
-import { Box, Divider, Stack, TextField, Typography } from "@mui/material";
+import { ChangeEvent, useState } from "react";
+import { Box, Divider, Stack, SxProps, TextField, Typography } from "@mui/material";
 import { useEditorStore } from "../EngineContext";
 import {
 	MaterialProperty,
@@ -27,6 +27,79 @@ function fromHex(hex: string): [number, number, number] {
 
 const AXES = ["X", "Y", "Z"] as const;
 
+/** Rounds a value for display. Transform data is stored as Float32Array, so
+ * the raw number is usually noise like -0.30000001192092896 - three decimals
+ * is more precision than hand-editing needs and keeps the field short enough
+ * to actually read. */
+function formatNumber(value: number): string {
+	return (Math.round(value * 1000) / 1000).toString();
+}
+
+// The Inspector panel is only ~230px of usable width, so three fields on one
+// row can't afford the default outlined-field padding (14px each side) *and*
+// the native up/down spinner buttons - between the two there was only about
+// 45px left to actually draw digits in, which clipped anything longer than
+// "0" (e.g. "-0.3" rendered as "-0."). Hiding the spinners (too small to hit
+// reliably anyway) and shrinking the padding reclaims that space; each field
+// also flexes evenly across the row instead of a fixed width, so three of
+// them plus gaps never exceeds the row's actual available width.
+const NUMBER_FIELD_SX: SxProps = {
+	flex: 1,
+	minWidth: 0,
+	"& .MuiOutlinedInput-input": {
+		padding: "6px 6px",
+		MozAppearance: "textfield",
+	},
+	"& input[type=number]::-webkit-outer-spin-button, & input[type=number]::-webkit-inner-spin-button":
+		{
+			WebkitAppearance: "none",
+			margin: 0,
+		},
+};
+
+interface NumberFieldProps {
+	label: string;
+	value: number;
+	onCommit: (value: number) => void;
+}
+
+/**
+ * A single numeric field. Shows a short, rounded form of `value` while not
+ * focused (see formatNumber), but once focused shows exactly what's being
+ * typed instead - otherwise re-rounding the display on every keystroke would
+ * fight the user typing a fourth decimal place, or a trailing ".".
+ *
+ * Commits on every keystroke that parses as a number (same as before this
+ * component existed), at full precision - only the *display* is rounded, the
+ * committed value never loses precision.
+ */
+function NumberField({ label, value, onCommit }: NumberFieldProps) {
+	const [editingText, setEditingText] = useState<string | null>(null);
+	const displayValue = editingText ?? formatNumber(value);
+
+	return (
+		<TextField
+			label={label}
+			type="number"
+			size="small"
+			variant="outlined"
+			value={displayValue}
+			inputProps={{ step: "any" }}
+			sx={NUMBER_FIELD_SX}
+			onFocus={() => setEditingText(formatNumber(value))}
+			onBlur={() => setEditingText(null)}
+			onChange={(event: ChangeEvent<HTMLInputElement>) => {
+				const raw = event.target.value;
+				setEditingText(raw);
+				const parsed = Number(raw);
+				if (raw !== "" && !Number.isNaN(parsed)) {
+					onCommit(parsed);
+				}
+			}}
+		/>
+	);
+}
+
 interface Vector3RowProps {
 	label: string;
 	value: ArrayLike<number>;
@@ -40,36 +113,28 @@ interface Vector3RowProps {
  * indirection, so there's nothing else that needs to stay in sync (see
  * AddCubeController.onMouseMove for the same direct-mutation pattern).
  *
- * Only commits (and re-renders) on a value that actually parses as a number,
- * so an in-progress keystroke like "-" or "1." isn't immediately reformatted
- * out from under the user.
+ * The label sits on its own line above the fields rather than beside them -
+ * the Inspector panel is too narrow to fit a label plus three fields on one
+ * row without squeezing the fields down far enough to clip their own values
+ * (see NUMBER_FIELD_SX).
  */
 function Vector3Row({ label, value, onChangeAxis }: Vector3RowProps) {
 	return (
-		<Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 1 }}>
-			<Typography variant="body2" sx={{ width: 76, flexShrink: 0 }}>
+		<Box sx={{ mt: 1 }}>
+			<Typography variant="body2" color="text.secondary">
 				{label}
 			</Typography>
-			{AXES.map((axis, i) => (
-				<TextField
-					key={axis}
-					label={axis}
-					type="number"
-					size="small"
-					variant="outlined"
-					value={value[i]}
-					inputProps={{ step: "any" }}
-					sx={{ width: 78 }}
-					onChange={(event: ChangeEvent<HTMLInputElement>) => {
-						const raw = event.target.value;
-						const parsed = Number(raw);
-						if (raw !== "" && !Number.isNaN(parsed)) {
-							onChangeAxis(i, parsed);
-						}
-					}}
-				/>
-			))}
-		</Stack>
+			<Stack direction="row" spacing={1} sx={{ mt: 0.5 }}>
+				{AXES.map((axis, i) => (
+					<NumberField
+						key={axis}
+						label={axis}
+						value={value[i]}
+						onCommit={(v) => onChangeAxis(i, v)}
+					/>
+				))}
+			</Stack>
+		</Box>
 	);
 }
 
