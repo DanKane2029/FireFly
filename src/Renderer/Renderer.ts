@@ -186,6 +186,7 @@ class Renderer {
 		this._gl.bindFramebuffer(this._gl.FRAMEBUFFER, null);
 
 		// global GL state that is constant for the lifetime of the scene
+		this._gl.enable(this._gl.CULL_FACE);
 		this._gl.cullFace(this._gl.BACK);
 		this.setClearColor(backgroundColor);
 		this.enable(this._gl.DEPTH_TEST);
@@ -295,10 +296,18 @@ class Renderer {
 			// setup lights. The shader declares a fixed-size array, so ignore any
 			// lights past it rather than writing uniforms that do not exist.
 			const visibleLights = lightPositions.slice(0, MAX_LIGHTS);
-			this.setUniform1i(shaderProgram, "u_numLights", visibleLights.length);
+			this.setUniform1i(
+				shaderProgram,
+				"u_numLights",
+				visibleLights.length
+			);
 			this.setUniform3f(shaderProgram, "u_ambientLight", ambientLight);
 			visibleLights.forEach((position: vec3, i: number) => {
-				this.setPointLight(shaderProgram, `u_lightList[${i}]`, position);
+				this.setPointLight(
+					shaderProgram,
+					`u_lightList[${i}]`,
+					position
+				);
 			});
 
 			this.drawElements(
@@ -413,6 +422,22 @@ class Renderer {
 	}
 
 	/**
+	 * Frees a vertex buffer's GPU memory and marks it uncreated, so it would be
+	 * re-uploaded if ever reused. Call when the mesh it belongs to is no longer
+	 * referenced by anything in the world (e.g. an asset is unloaded).
+	 *
+	 * @param buffer - The vertex buffer to delete
+	 */
+	deleteVertexBuffer(buffer: VertexBuffer): void {
+		if (!buffer.created) {
+			return;
+		}
+		this._gl.deleteBuffer(buffer.buffer);
+		buffer.created = false;
+		buffer.layout.created = false;
+	}
+
+	/**
 	 * Creates a index buffer in the WebGL context
 	 *
 	 * @param buffer - The index buffer to create
@@ -448,6 +473,19 @@ class Renderer {
 	 */
 	unbindIndexBuffer(): void {
 		this._gl.bindBuffer(this._gl.ELEMENT_ARRAY_BUFFER, null);
+	}
+
+	/**
+	 * Frees an index buffer's GPU memory and marks it uncreated.
+	 *
+	 * @param buffer - The index buffer to delete
+	 */
+	deleteIndexBuffer(buffer: IndexBuffer): void {
+		if (!buffer.created) {
+			return;
+		}
+		this._gl.deleteBuffer(buffer.buffer);
+		buffer.created = false;
 	}
 
 	/**
@@ -519,6 +557,28 @@ class Renderer {
 	 */
 	dropProgram(): void {
 		this._gl.useProgram(null);
+	}
+
+	/**
+	 * Deletes a linked shader program and its two compiled shader stages, and
+	 * marks all three uncreated. Call when nothing in the world references the
+	 * program anymore (e.g. the last user of a material is unloaded).
+	 *
+	 * @param shaderProgram - The shader program to delete
+	 */
+	deleteShaderProgram(shaderProgram: ShaderProgram): void {
+		if (shaderProgram.created) {
+			this._gl.deleteProgram(shaderProgram.program);
+			shaderProgram.created = false;
+		}
+		[shaderProgram.vertexShader, shaderProgram.fragmentShader].forEach(
+			(shader: Shader) => {
+				if (shader.created) {
+					this._gl.deleteShader(shader.shader);
+					shader.created = false;
+				}
+			}
+		);
 	}
 
 	/**
@@ -625,11 +685,7 @@ class Renderer {
 	 * @param name - The name of the point light
 	 * @param position - The world-space position of the point light
 	 */
-	setPointLight(
-		shaderProgram: ShaderProgram,
-		name: string,
-		position: vec3
-	) {
+	setPointLight(shaderProgram: ShaderProgram, name: string, position: vec3) {
 		this.setUniform3f(shaderProgram, `${name}.pos`, position);
 	}
 
@@ -727,6 +783,20 @@ class Renderer {
 		);
 		this._gl.generateMipmap(this._gl.TEXTURE_2D);
 		texture.loaded = true;
+	}
+
+	/**
+	 * Deletes a texture's GPU memory and marks it uncreated/unloaded.
+	 *
+	 * @param texture - The texture to delete
+	 */
+	deleteTexture(texture: Texture): void {
+		if (!texture.created) {
+			return;
+		}
+		this._gl.deleteTexture(texture.texture);
+		texture.created = false;
+		texture.loaded = false;
 	}
 
 	/**

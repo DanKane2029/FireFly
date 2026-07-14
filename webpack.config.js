@@ -1,13 +1,16 @@
 const path = require('path');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 
-module.exports = {
+module.exports = (env, argv) => ({
 	entry: './src/index.tsx',
 	output: {
 		filename: 'index.js',
 		path: path.resolve(__dirname, 'dist'),
 	},
-	devtool: 'inline-source-map',
+	// inline-source-map embeds the whole map in index.js, which is most of why
+	// a production build used to be 9.5 MB. Production gets a separate .map file
+	// instead; dev keeps the inline map for fast rebuilds.
+	devtool: argv.mode === 'production' ? 'source-map' : 'inline-source-map',
 	devServer: {
 		static: {
 			directory: path.join(__dirname, 'dist'),
@@ -64,4 +67,4 @@ module.exports = {
 			}
 		]
 	},
-}
+})

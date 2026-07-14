@@ -47,7 +47,7 @@ void main(void) {
 	}
 
 	vec3 lightColor = u_color.xyz * totalLightValue;
-	fragColor = vec4(lightColor + u_ambientLight, 1);
+	fragColor = vec4(lightColor + u_ambientLight, u_color.a);
 
 	// Second render target: write this object's id for GPU picking.
 	objectId = v_objectId;
