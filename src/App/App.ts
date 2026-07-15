@@ -6,7 +6,7 @@ import { Controller } from "../Controller/Controller";
 // controllers
 import { AddCubeController } from "../Controller/AddCube";
 import { OrbitalControls } from "../Controller/OrbitalCamera";
-import { SelectObjectController } from "../Controller/SelectObject";
+import { GizmoController } from "../Controller/GizmoController";
 
 import { vec2, vec3, vec4 } from "gl-matrix";
 
@@ -22,6 +22,8 @@ import {
 } from "../ecs/scenes";
 import { litProgram, spawnRenderable } from "../ecs/prefabs";
 import { MaterialRef } from "../ecs/components/MaterialRef";
+import { Transform } from "../ecs/components/Transform";
+import { buildGizmoRenderables } from "../Renderer/Gizmo";
 import { assetRegistry } from "../Assets/AssetRegistry";
 import { AssetId } from "../Assets/AssetId";
 import { ShaderProgram } from "../Renderer/Shader";
@@ -443,7 +445,8 @@ class App {
 	 * Controllers (how the mouse behaves):
 	 *   o - Orbital camera controls
 	 *   c - Add Cube controls
-	 *   s - Select Object controls
+	 *   s - Select/gizmo controls (click to select; drag a selected
+	 *       object's axis handles to move it)
 	 *
 	 * Scenes (what is being rendered):
 	 *   1 - Snowman (procedural spheres)
@@ -465,7 +468,7 @@ class App {
 					this.setController(new OrbitalControls());
 					break;
 				case "s":
-					this.setController(new SelectObjectController());
+					this.setController(new GizmoController());
 					break;
 				case "1":
 					this.loadScene("snowman");
@@ -654,7 +657,10 @@ class App {
 		// Decode every referenced image once, up front.
 		const textures = new Map<number, Texture>();
 		for (const [imageIndex, image] of parsed.images) {
-			textures.set(imageIndex, await decodeImage(image.bytes, image.mimeType));
+			textures.set(
+				imageIndex,
+				await decodeImage(image.bytes, image.mimeType)
+			);
 		}
 
 		// Register a material per glTF material actually used.
@@ -715,13 +721,17 @@ class App {
 				// all): opaque white, no texture.
 				const finalMaterialId =
 					materialId ??
-					assetRegistry.createMaterial("Default Material", litProgram, [
-						{
-							type: MaterialPropertyType.VEC4,
-							name: "u_color",
-							value: [1, 1, 1, 1],
-						},
-					]);
+					assetRegistry.createMaterial(
+						"Default Material",
+						litProgram,
+						[
+							{
+								type: MaterialPropertyType.VEC4,
+								name: "u_color",
+								value: [1, 1, 1, 1],
+							},
+						]
+					);
 
 				spawnRenderable(this._world, {
 					mesh: meshId,
@@ -754,10 +764,25 @@ class App {
 
 		this._scheduler.run(this._world, dt, this._time);
 
+		// The gizmo isn't ECS data - it's an editor overlay tied to the
+		// current selection, not a world entity - so it's built here rather
+		// than inside renderSystem (see RenderContext.overlayRenderables).
+		const selectedTransform =
+			this._selectedId !== null
+				? this._world.get(this._selectedId, Transform)
+				: undefined;
+		const overlayRenderables = selectedTransform
+			? buildGizmoRenderables(
+					selectedTransform.translation,
+					this._camera.translation
+			  )
+			: undefined;
+
 		renderSystem(this._world, {
 			renderer: this._renderer,
 			camera: this._camera,
 			ambientLight: this._ambientLight,
+			overlayRenderables,
 		});
 	}
 }
