@@ -6,6 +6,8 @@ import { Box } from "../Geometry/Box";
 import { parseOBJ } from "../Geometry/OBJLoader";
 import VertLightingShader from "../Shaders/Lighting.vert.glsl";
 import FragLightingShader from "../Shaders/Lighting.frag.glsl";
+import VertUnlitShader from "../Shaders/Unlit.vert.glsl";
+import FragUnlitShader from "../Shaders/Unlit.frag.glsl";
 import bunnyObj from "../../res/models/bunny.obj";
 import dragonObj from "../../res/models/dragon.obj";
 
@@ -33,6 +35,15 @@ import { assetRegistry } from "../Assets/AssetRegistry";
 export const litProgram = new ShaderProgram(
 	new Shader(VertLightingShader, ShaderType.VERTEX),
 	new Shader(FragLightingShader, ShaderType.FRAGMENT)
+);
+
+// A flat, lighting-independent shader for overlay geometry that shouldn't be
+// shaded like a scene object - the selection outline (Renderer/Outline.ts)
+// and the transform gizmo handles both want a solid color regardless of the
+// scene's lights, not a Lambert-shaded one.
+export const unlitProgram = new ShaderProgram(
+	new Shader(VertUnlitShader, ShaderType.VERTEX),
+	new Shader(FragUnlitShader, ShaderType.FRAGMENT)
 );
 
 /** Registers a material that uses the shared lit program with its own color,

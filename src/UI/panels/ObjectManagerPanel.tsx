@@ -10,8 +10,6 @@ import {
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import { useEditorStore } from "../EngineContext";
 import { Named } from "../../ecs/components/Named";
-import { MaterialRef } from "../../ecs/components/MaterialRef";
-import { assetRegistry } from "../../Assets/AssetRegistry";
 
 /**
  * Lists the named entities in the ECS world. Clicking a row selects that entity
@@ -24,17 +22,10 @@ export function ObjectManagerPanel() {
 	const entities = app.world.query(Named);
 
 	const remove = (entity: number) => {
-		// Every entity a material is minted for is owned by exactly one entity
-		// (see AssetRegistry.createMaterial), so it's safe to dispose here
-		// without checking whether another entity still references it.
-		const materialRef = app.world.get(entity, MaterialRef);
+		// Materials are shared, permanent registry entries now (see the
+		// Materials panel) - deleting this entity must not dispose the
+		// material it referenced, since another entity may still use it.
 		app.world.destroy(entity);
-		if (materialRef) {
-			assetRegistry.disposeMaterial(
-				app.isAttached ? app.renderer : undefined,
-				materialRef.material
-			);
-		}
 		// destroy does not itself notify; clearing an equal selection emits,
 		// otherwise emit explicitly so the list re-renders.
 		if (app.selectedId === entity) {

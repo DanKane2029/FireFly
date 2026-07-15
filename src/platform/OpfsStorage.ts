@@ -1,4 +1,5 @@
 import {
+	DirectoryEntry,
 	FileRef,
 	PickOpenFileOptions,
 	PickSaveFileOptions,
@@ -8,6 +9,7 @@ import {
 	WorkspaceRef,
 } from "./Storage";
 import {
+	listDirectoryEntries,
 	readBytesFromDirectory,
 	writeBytesToDirectory,
 } from "./directoryHandle";
@@ -68,7 +70,9 @@ export class OpfsStorage implements Storage {
 	}
 
 	async readFileBytes(ref: FileRef): Promise<Uint8Array> {
-		return new Uint8Array(await this.requireUploadedFile(ref).arrayBuffer());
+		return new Uint8Array(
+			await this.requireUploadedFile(ref).arrayBuffer()
+		);
 	}
 
 	private requireUploadedFile(ref: FileRef): File {
@@ -138,6 +142,16 @@ export class OpfsStorage implements Storage {
 			await navigator.storage.getDirectory(),
 			relativePath,
 			bytes
+		);
+	}
+
+	async listDirectory(
+		_workspace: WorkspaceRef,
+		relativePath: string
+	): Promise<DirectoryEntry[]> {
+		return listDirectoryEntries(
+			await navigator.storage.getDirectory(),
+			relativePath
 		);
 	}
 }

@@ -9,8 +9,14 @@ import {
 	toolById,
 	toolForKey,
 } from "../Controller/tools";
+import { GizmoController } from "../Controller/GizmoController";
+import {
+	GizmoMode,
+	DEFAULT_GIZMO_MODE_ID,
+	gizmoModeForKey,
+} from "../Controller/gizmoModes";
 
-import { vec2, vec3, vec4 } from "gl-matrix";
+import { mat4, vec2, vec3, vec4 } from "gl-matrix";
 
 import { World } from "../ecs/World";
 import { Scheduler } from "../ecs/System";
@@ -24,7 +30,9 @@ import {
 } from "../ecs/scenes";
 import { litProgram, spawnRenderable } from "../ecs/prefabs";
 import { MaterialRef } from "../ecs/components/MaterialRef";
-import { Transform } from "../ecs/components/Transform";
+import { Transform, transformMatrix } from "../ecs/components/Transform";
+import { MeshRef } from "../ecs/components/MeshRef";
+import { buildOutlineRenderable } from "../Renderer/Outline";
 import { buildGizmoRenderables } from "../Renderer/Gizmo";
 import { assetRegistry } from "../Assets/AssetRegistry";
 import { AssetId } from "../Assets/AssetId";
@@ -37,6 +45,7 @@ import {
 	FileRef,
 	WorkspaceRef,
 	RecentWorkspaceEntry,
+	DirectoryEntry,
 } from "../platform/Storage";
 import { shortContentHash } from "../platform/contentHash";
 import { serializeScene } from "../Scene/serializeScene";
@@ -91,6 +100,12 @@ class App {
 	private _cameraController: OrbitalControls;
 	private _toolController: Controller;
 	private _activeToolId: ToolId;
+	// Which of the gizmo's three drag behaviors is active - independent of
+	// _activeToolId (the gizmo is only reachable through the "select" tool,
+	// but which mode it's in survives switching to another tool and back;
+	// see setTool's re-sync). Remembered here, not on the GizmoController
+	// instance itself, since setTool constructs a fresh one on every switch.
+	private _gizmoMode: GizmoMode;
 	private _storage: Storage;
 	// The file the current scene was last saved to or opened from, or null for
 	// an unsaved new scene. Reused so a second "Save" overwrites in place
@@ -116,6 +131,7 @@ class App {
 
 	// --- editor UI store (observed by React panels) ---
 	private _selectedId: number | null;
+	private _selectedMaterialId: AssetId | null;
 	private _version: number;
 	private _listeners: Set<() => void>;
 
@@ -138,6 +154,7 @@ class App {
 		this._cameraController = new OrbitalControls();
 		this._activeToolId = DEFAULT_TOOL_ID;
 		this._toolController = toolById(DEFAULT_TOOL_ID).create();
+		this._gizmoMode = DEFAULT_GIZMO_MODE_ID;
 		this._storage = storage;
 		this._currentFileRef = null;
 		this._workspace = null;
@@ -149,6 +166,7 @@ class App {
 		this._lastTime = 0;
 
 		this._selectedId = null;
+		this._selectedMaterialId = null;
 		this._version = 0;
 		this._listeners = new Set();
 
@@ -353,6 +371,20 @@ class App {
 		return this._storage.recentWorkspaces();
 	}
 
+	/**
+	 * Lists the direct children of a workspace-relative directory, for the
+	 * Workspace panel. `relativePath: ""` lists the open workspace's root.
+	 * Resolves to `[]` if no workspace is open - App is the sole façade
+	 * panels talk to, so this stays a thin pass-through to Storage rather
+	 * than the panel importing a backend directly.
+	 */
+	listWorkspaceDirectory(relativePath: string): Promise<DirectoryEntry[]> {
+		if (!this._workspace) {
+			return Promise.resolve([]);
+		}
+		return this._storage.listDirectory(this._workspace, relativePath);
+	}
+
 	// --- editor UI store -----------------------------------------------------
 
 	/**
@@ -409,6 +441,33 @@ class App {
 		}
 	}
 
+	/**
+	 * The id of the material currently selected in the Materials panel, or
+	 * null if none is. Independent of `selectedId` (an entity) - a material
+	 * can be selected for editing without any object in the scene being
+	 * selected, since materials are their own shared assets now.
+	 */
+	get selectedMaterialId(): AssetId | null {
+		return this._selectedMaterialId;
+	}
+
+	/** Selects a material by id (or clears the selection with null). */
+	selectMaterial(id: AssetId | null): void {
+		if (id !== this._selectedMaterialId) {
+			this._selectedMaterialId = id;
+			this.emit();
+		}
+	}
+
+	/** How many entities in the world reference a material - the Materials
+	 * panel uses this to disable deleting a material still in use (deleting
+	 * it would leave those entities' MaterialRef pointing at nothing). */
+	materialUsageCount(id: AssetId): number {
+		return this._world
+			.query(MaterialRef)
+			.filter(([, materialRef]) => materialRef.material === id).length;
+	}
+
 	// --- input ---------------------------------------------------------------
 
 	/**
@@ -429,7 +488,40 @@ class App {
 	 */
 	setTool(id: ToolId): void {
 		this._activeToolId = id;
-		this._toolController = toolById(id).create();
+		const controller = toolById(id).create();
+		// A fresh GizmoController always starts in its own default mode -
+		// re-sync it to whatever mode was last active, so switching away to
+		// another tool and back doesn't silently reset it to translate.
+		if (controller instanceof GizmoController) {
+			controller.setMode(this._gizmoMode);
+		}
+		this._toolController = controller;
+		this.emit();
+	}
+
+	/**
+	 * The gizmo's currently active drag mode (move/rotate/scale). Only
+	 * meaningful while the "select" tool is active, but remembered regardless
+	 * - see the field's own doc comment.
+	 */
+	get activeGizmoModeId(): GizmoMode {
+		return this._gizmoMode;
+	}
+
+	/**
+	 * Switches the gizmo's drag mode. Forwards to the active tool controller
+	 * if it's currently a GizmoController (a no-op otherwise - e.g. while the
+	 * "addCube" tool is active - the mode is still remembered for next time
+	 * the select tool activates, via setTool's re-sync).
+	 *
+	 * @param mode - The mode to switch to, from the registry in
+	 * Controller/gizmoModes.ts
+	 */
+	setGizmoMode(mode: GizmoMode): void {
+		this._gizmoMode = mode;
+		if (this._toolController instanceof GizmoController) {
+			this._toolController.setMode(mode);
+		}
 		this.emit();
 	}
 
@@ -478,13 +570,20 @@ class App {
 
 	/**
 	 * Binds the keyboard shortcuts to the attached canvas (which must be focused).
-	 * Two groups of keys:
+	 * Three groups of keys:
 	 *
 	 * Tools (what the left mouse button does - see Controller/tools.ts for the
 	 * source of truth; the ScenePanel's toolbar reads the same list):
 	 *   s - Select/gizmo (click to select; drag a selected object's axis
-	 *       handles to move it)
+	 *       handles to move, rotate, or scale it, depending on the mode below)
 	 *   c - Add Cube (click to add a cube; drag to size it)
+	 *
+	 * Gizmo modes (which drag behavior the select tool's handles perform -
+	 * see Controller/gizmoModes.ts; only checked while "select" is active,
+	 * since w/e/r otherwise have no effect):
+	 *   w - Move
+	 *   e - Rotate
+	 *   r - Scale
 	 *
 	 * The camera (orbit: right-button drag, zoom: scroll) is always on and has
 	 * no key of its own - see `bindInputHandlers`.
@@ -507,6 +606,14 @@ class App {
 				return;
 			}
 
+			if (this._activeToolId === "select") {
+				const mode = gizmoModeForKey(event.key);
+				if (mode) {
+					this.setGizmoMode(mode.id);
+					return;
+				}
+			}
+
 			switch (event.key) {
 				case "1":
 					this.loadScene("snowman");
@@ -523,29 +630,20 @@ class App {
 	}
 
 	/**
-	 * Drops every entity's material from the registry before the world that
-	 * referenced them is cleared. Every entity's material is minted fresh for
-	 * it alone (see AssetRegistry.createMaterial), so nothing else references
-	 * it once the world is cleared - skip this and the registry grows forever
-	 * as scenes are switched, saved, or loaded. Meshes are shared built-ins
-	 * and are never disposed here.
-	 */
-	private disposeCurrentMaterials(): void {
-		const renderer = this.isAttached ? this._renderer : undefined;
-		this._world.query(MaterialRef).forEach(([, materialRef]) => {
-			assetRegistry.disposeMaterial(renderer, materialRef.material);
-		});
-	}
-
-	/**
 	 * Clears the world and repopulates it with a named test scene, clears the
 	 * selection, and notifies observing panels. The renderer uploads the new
 	 * entities' GPU resources on the next frame automatically.
 	 *
+	 * Materials are NOT disposed here, even though every entity referencing
+	 * one is about to be destroyed: they're shared, permanent registry
+	 * entries now (see AssetRegistry.listMaterials/MaterialsPanel), the same
+	 * way built-in meshes already are - disposing a material because the
+	 * scene using it was cleared would break every OTHER entity, in any
+	 * other scene, that still references it.
+	 *
 	 * @param name - A key of SCENES ("snowman", "bunny", or "dragon").
 	 */
 	loadScene(name: keyof typeof SCENES): void {
-		this.disposeCurrentMaterials();
 		this._world.clear();
 		// Lights are entities too, so clearing the world unlights it - every scene
 		// spawns the shared rig before its own contents.
@@ -565,7 +663,6 @@ class App {
 	 * containing a camera and a light" requirement.
 	 */
 	newScene(): void {
-		this.disposeCurrentMaterials();
 		this._world.clear();
 		spawnDefaultLights(this._world);
 		this._camera.translation = vec3.fromValues(0, 0, 2);
@@ -633,7 +730,6 @@ class App {
 		const text = await this._storage.readText(ref);
 		const file = JSON.parse(text) as SceneFile;
 
-		this.disposeCurrentMaterials();
 		this._world.clear();
 
 		const environment = deserializeScene(
@@ -811,16 +907,36 @@ class App {
 				: undefined;
 		const overlayRenderables = selectedTransform
 			? buildGizmoRenderables(
+					this._gizmoMode,
 					selectedTransform.translation,
 					this._camera.translation
 			  )
 			: undefined;
+
+		// Same reasoning as the gizmo above: not ECS data, built here from the
+		// current selection. Only entities with a mesh get one - a selected
+		// light, for instance, has nothing to outline.
+		const selectedMeshRef =
+			this._selectedId !== null
+				? this._world.get(this._selectedId, MeshRef)
+				: undefined;
+		const outlineRenderables =
+			selectedTransform && selectedMeshRef
+				? [
+						buildOutlineRenderable(
+							this._selectedId as number,
+							transformMatrix(selectedTransform, mat4.create()),
+							assetRegistry.resolveMesh(selectedMeshRef.mesh)
+						),
+				  ]
+				: undefined;
 
 		renderSystem(this._world, {
 			renderer: this._renderer,
 			camera: this._camera,
 			ambientLight: this._ambientLight,
 			overlayRenderables,
+			outlineRenderables,
 		});
 	}
 }

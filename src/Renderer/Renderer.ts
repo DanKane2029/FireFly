@@ -267,13 +267,19 @@ class Renderer {
 	 * @param cam - The camera whose view/projection to render from
 	 * @param ambientLight - The scene ambient light color
 	 * @param lightPositions - World-space positions of the point lights
+	 * @param overlayRenderables - Drawn last, depth-test off, always on top
+	 * @param outlineRenderables - Drawn after the main pass but before the
+	 * overlay, depth-tested and backface-only (see the cullFace toggle below)
+	 * so only the sliver of each renderable that pokes out past the real
+	 * geometry - a silhouette rim - actually shows (see Outline.ts)
 	 */
 	render(
 		renderables: Renderable[],
 		cam: Camera,
 		ambientLight: vec3,
 		lightPositions: vec3[],
-		overlayRenderables: Renderable[] = []
+		overlayRenderables: Renderable[] = [],
+		outlineRenderables: Renderable[] = []
 	): void {
 		this.clear();
 
@@ -281,12 +287,32 @@ class Renderer {
 		if (overlayRenderables.length > 0) {
 			this.ensureResources(overlayRenderables);
 		}
+		if (outlineRenderables.length > 0) {
+			this.ensureResources(outlineRenderables);
+		}
 
 		// Render into the offscreen framebuffer so each object writes both its
 		// shaded color (attachment 0) and its id (attachment 1) in one pass.
 		this._gl.bindFramebuffer(this._gl.FRAMEBUFFER, this._frameBuffer);
 
 		this.drawRenderables(renderables, cam, ambientLight, lightPositions);
+
+		if (outlineRenderables.length > 0) {
+			// cullFace is BACK everywhere else in this renderer (set once in
+			// initScene and never toggled) - flipping to FRONT for just this
+			// pass is what turns "the selected mesh, scaled up 3%" into a rim
+			// instead of a fully solid oversized copy: with front faces
+			// culled, only the backfaces poking out past the real mesh survive
+			// the depth test against it.
+			this._gl.cullFace(this._gl.FRONT);
+			this.drawRenderables(
+				outlineRenderables,
+				cam,
+				ambientLight,
+				lightPositions
+			);
+			this._gl.cullFace(this._gl.BACK);
+		}
 
 		if (overlayRenderables.length > 0) {
 			// The overlay (currently just the transform gizmo) draws in a

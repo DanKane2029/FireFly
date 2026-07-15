@@ -12,6 +12,14 @@ import { vec3 } from "gl-matrix";
 export type GizmoAxis = "x" | "y" | "z";
 
 /**
+ * Which of the gizmo's three drag behaviors is active. Only one mode's
+ * handles are ever built into a frame's overlayRenderables at a time (see
+ * Gizmo.ts's buildGizmoRenderables), so GIZMO_AXIS_IDS below is reused
+ * unchanged across all three - there's no id collision to worry about.
+ */
+export type GizmoMode = "translate" | "rotate" | "scale";
+
+/**
  * Reserved ids for the gizmo's handles. Negative, so they can never collide
  * with an entity id (World hands those out starting at 1) - and specifically
  * not -1, which the id-texture is cleared to and the Picker already reads

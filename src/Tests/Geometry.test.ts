@@ -1,6 +1,8 @@
 import { describe, expect, test } from "@jest/globals";
+import { vec3 } from "gl-matrix";
 import { Sphere } from "../Geometry/Sphere";
 import { Box } from "../Geometry/Box";
+import { Ring } from "../Geometry/Ring";
 import { Mesh } from "../Geometry/Mesh";
 import { VertexBufferLayout, VertexTypes } from "../Renderer/Buffer";
 
@@ -21,9 +23,13 @@ describe("Sphere geometry", () => {
 		const columns = detail;
 		// First ring (north pole, theta=0) should have v=0; last ring (south
 		// pole, theta=pi) should have v=1. First column (phi=0) should have u=0.
-		expect(Array.from(mesh.vertexList[0].textureCoord ?? [])).toEqual([0, 0]);
+		expect(Array.from(mesh.vertexList[0].textureCoord ?? [])).toEqual([
+			0, 0,
+		]);
 		const lastRingFirstCol = detail * columns; // row `detail`, column 0
-		expect(mesh.vertexList[lastRingFirstCol].textureCoord?.[1]).toBeCloseTo(1);
+		expect(mesh.vertexList[lastRingFirstCol].textureCoord?.[1]).toBeCloseTo(
+			1
+		);
 	});
 
 	test("every index refers to a real vertex", () => {
@@ -74,6 +80,56 @@ describe("Box geometry", () => {
 				[1, 0],
 			]);
 		}
+	});
+});
+
+describe("Ring geometry", () => {
+	const segments = 8;
+	const inner = 0.8;
+	const outer = 1;
+	const mesh = new Ring(inner, outer).calculateMesh(segments);
+
+	// Built double-sided (see Ring.ts's doc comment): 2 faces * segments
+	// quads * 4 vertices each, no shared vertices between quads (each corner
+	// carries its own flat normal, same reasoning as Box.ts).
+	const vertexCount = 2 * segments * 4;
+
+	test("has 2 * segments * 4 vertices (double-sided, 4 per quad)", () => {
+		expect(mesh.vertexBuffer.vertices.length).toBe(vertexCount * 8);
+	});
+
+	test("has 2 * segments * 2 triangles (double-sided, 2 per quad)", () => {
+		expect(mesh.indexBuffer.indices.length).toBe(2 * segments * 2 * 3);
+	});
+
+	test("every index refers to a real vertex", () => {
+		mesh.indexBuffer.indices.forEach((i) => {
+			expect(i).toBeGreaterThanOrEqual(0);
+			expect(i).toBeLessThan(vertexCount);
+		});
+	});
+
+	test("every vertex lies flat in the local z=0 plane", () => {
+		mesh.vertexList.forEach((v) => {
+			expect(v.position[2]).toBeCloseTo(0);
+		});
+	});
+
+	test("inner-edge vertices are at the inner radius, outer-edge at the outer radius", () => {
+		// Each quad's 4 vertices are pushed as [inner0, outer0, outer1, inner1]
+		// (see Ring.ts) - indices 0 and 3 of the first quad are inner-radius,
+		// 1 and 2 are outer-radius.
+		const innerVertex = mesh.vertexList[0];
+		const outerVertex = mesh.vertexList[1];
+		expect(vec3.length(innerVertex.position)).toBeCloseTo(inner);
+		expect(vec3.length(outerVertex.position)).toBeCloseTo(outer);
+	});
+
+	test("the two sides face opposite directions", () => {
+		const frontNormal = mesh.vertexList[0].normal;
+		const backNormal = mesh.vertexList[segments * 4].normal;
+		expect(Array.from(frontNormal ?? [])).toEqual([0, 0, 1]);
+		expect(Array.from(backNormal ?? [])).toEqual([0, 0, -1]);
 	});
 });
 

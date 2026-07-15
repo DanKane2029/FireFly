@@ -170,4 +170,62 @@ describe("MemoryStorage", () => {
 		storage.queueWorkspacePick(null);
 		expect(await storage.openWorkspace()).toBeNull();
 	});
+
+	test("listDirectory on an empty workspace returns []", async () => {
+		const storage = new MemoryStorage();
+		const workspace = must(await storage.openWorkspace());
+		expect(await storage.listDirectory(workspace, "")).toEqual([]);
+	});
+
+	test("listDirectory lists a root-level file", async () => {
+		const storage = new MemoryStorage();
+		const workspace = must(await storage.openWorkspace());
+		await storage.writeBytes(
+			workspace,
+			"thing.bin",
+			new Uint8Array([1, 2, 3])
+		);
+
+		expect(await storage.listDirectory(workspace, "")).toEqual([
+			{ name: "thing.bin", kind: "file", size: 3 },
+		]);
+	});
+
+	test("listDirectory groups a nested path into one directory entry at the root", async () => {
+		const storage = new MemoryStorage();
+		const workspace = must(await storage.openWorkspace());
+		await storage.writeBytes(
+			workspace,
+			"assets/sub/thing.bin",
+			new Uint8Array([1, 2, 3, 4])
+		);
+
+		expect(await storage.listDirectory(workspace, "")).toEqual([
+			{ name: "assets", kind: "directory" },
+		]);
+	});
+
+	test("listDirectory drills into a subdirectory", async () => {
+		const storage = new MemoryStorage();
+		const workspace = must(await storage.openWorkspace());
+		await storage.writeBytes(
+			workspace,
+			"assets/sub/thing.bin",
+			new Uint8Array([1, 2, 3, 4])
+		);
+
+		expect(await storage.listDirectory(workspace, "assets")).toEqual([
+			{ name: "sub", kind: "directory" },
+		]);
+		expect(await storage.listDirectory(workspace, "assets/sub")).toEqual([
+			{ name: "thing.bin", kind: "file", size: 4 },
+		]);
+	});
+
+	test("listDirectory on a workspace nothing was ever written to returns []", async () => {
+		const storage = new MemoryStorage();
+		expect(
+			await storage.listDirectory({ key: "mem-ws/999", name: "gone" }, "")
+		).toEqual([]);
+	});
 });

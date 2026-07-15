@@ -1,6 +1,10 @@
 import { describe, expect, test } from "@jest/globals";
 import { mat4, vec3 } from "gl-matrix";
-import { closestPointOnLineToRay, screenPointToWorldRay } from "../Math/Ray";
+import {
+	closestPointOnLineToRay,
+	intersectRayPlane,
+	screenPointToWorldRay,
+} from "../Math/Ray";
 import { Camera } from "../Renderer/Camera";
 
 describe("closestPointOnLineToRay", () => {
@@ -140,5 +144,64 @@ describe("screenPointToWorldRay", () => {
 			vec3.cross(vec3.create(), toPoint, ray.direction)
 		);
 		expect(distanceToRay).toBeCloseTo(0, 4);
+	});
+});
+
+describe("intersectRayPlane", () => {
+	test("a ray straight down at the XY plane hits the origin", () => {
+		const point = intersectRayPlane(
+			{
+				origin: vec3.fromValues(0, 0, 5),
+				direction: vec3.fromValues(0, 0, -1),
+			},
+			vec3.fromValues(0, 0, 0),
+			vec3.fromValues(0, 0, 1)
+		);
+		expect(point).not.toBeNull();
+		expect(point?.[0]).toBeCloseTo(0);
+		expect(point?.[1]).toBeCloseTo(0);
+		expect(point?.[2]).toBeCloseTo(0);
+	});
+
+	test("hits a plane through a non-origin point at an angle", () => {
+		const point = intersectRayPlane(
+			{
+				origin: vec3.fromValues(2, 5, 0),
+				direction: vec3.normalize(
+					vec3.create(),
+					vec3.fromValues(0, -1, 0)
+				),
+			},
+			vec3.fromValues(0, 1, 0),
+			vec3.fromValues(0, 1, 0)
+		);
+		expect(point).not.toBeNull();
+		expect(point?.[0]).toBeCloseTo(2);
+		expect(point?.[1]).toBeCloseTo(1);
+		expect(point?.[2]).toBeCloseTo(0);
+	});
+
+	test("a ray parallel to the plane returns null", () => {
+		const point = intersectRayPlane(
+			{
+				origin: vec3.fromValues(0, 5, 0),
+				direction: vec3.fromValues(1, 0, 0),
+			},
+			vec3.fromValues(0, 0, 0),
+			vec3.fromValues(0, 1, 0)
+		);
+		expect(point).toBeNull();
+	});
+
+	test("a plane entirely behind the ray's origin returns null", () => {
+		const point = intersectRayPlane(
+			{
+				origin: vec3.fromValues(0, 0, 0),
+				direction: vec3.fromValues(0, 0, 1),
+			},
+			vec3.fromValues(0, 0, -5),
+			vec3.fromValues(0, 0, 1)
+		);
+		expect(point).toBeNull();
 	});
 });

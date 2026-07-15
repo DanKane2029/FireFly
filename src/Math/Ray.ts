@@ -104,3 +104,36 @@ export function closestPointOnLineToRay(
 
 	return vec3.scaleAndAdd(vec3.create(), lineOrigin, lineDirection, s);
 }
+
+/**
+ * Finds where `ray` crosses the plane through `planePoint` with the given
+ * (normalized) `planeNormal`. This is what the rotation gizmo drag is built
+ * on: the cursor's ray is intersected with the plane perpendicular to the
+ * rotation axis, through the object's pivot, and the angle of that
+ * intersection point around the axis (see Math/Angles.ts) is the actual
+ * rotation amount.
+ *
+ * Returns null for two degenerate cases a caller must handle explicitly
+ * rather than receive a nonsensical point for: a ray (nearly) parallel to
+ * the plane (e.g. the camera looking edge-on down the rotation axis) has no
+ * single well-defined intersection, and a plane entirely behind the ray's
+ * origin (t < 0) isn't a point the cursor could actually be "pointing at".
+ */
+export function intersectRayPlane(
+	ray: Ray,
+	planePoint: vec3,
+	planeNormal: vec3
+): vec3 | null {
+	const denominator = vec3.dot(ray.direction, planeNormal);
+	if (Math.abs(denominator) < 1e-6) {
+		return null;
+	}
+
+	const toPlane = vec3.subtract(vec3.create(), planePoint, ray.origin);
+	const t = vec3.dot(toPlane, planeNormal) / denominator;
+	if (t < 0) {
+		return null;
+	}
+
+	return vec3.scaleAndAdd(vec3.create(), ray.origin, ray.direction, t);
+}
