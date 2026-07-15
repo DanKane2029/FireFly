@@ -8,7 +8,7 @@ import { Transform } from "../ecs/components/Transform";
 /**
  * Adds a cube entity to the world when the user interacts with the canvas. On
  * mouse-down it spawns a cube and then scales it by how far the mouse is
- * dragged; a plain click drops a small cube at the origin.
+ * dragged; a plain click (no drag) leaves it at its small starting scale.
  */
 class AddCubeController implements Controller {
 	private _mouseDownPoint: vec2 | undefined;
@@ -21,6 +21,13 @@ class AddCubeController implements Controller {
 	 * @param event - The mouse event fired when the mouse is pressed down
 	 */
 	onMouseDown(app: App, event: MouseEvent): void {
+		// Right button is reserved for the always-on camera orbit (see
+		// OrbitalControls); only the left button drives this tool, so both can
+		// be used without switching modes.
+		if (event.button !== 0) {
+			return;
+		}
+
 		if (event.target instanceof Element) {
 			const x = (event.clientX / event.target.clientWidth - 0.5) * 2;
 			const y = (1 - event.clientY / event.target.clientHeight - 0.5) * 2;
@@ -31,19 +38,6 @@ class AddCubeController implements Controller {
 			this._cube = spawnCube(app.world, { scale: [0.1, 0.1, 0.1] });
 			app.notifyChanged();
 		}
-	}
-
-	/**
-	 * Adds a small cube at the center of the scene.
-	 *
-	 * @param app - The application to add the cube to
-	 */
-	onClick(app: App): void {
-		spawnCube(app.world, {
-			translation: [0, 0, 0],
-			scale: [0.05, 0.05, 0.05],
-		});
-		app.notifyChanged();
 	}
 
 	/**
