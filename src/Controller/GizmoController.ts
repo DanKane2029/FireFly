@@ -42,7 +42,13 @@ class GizmoController implements Controller {
 	 * @param event - The mouse event fired on press
 	 */
 	onMouseDown(app: App, event: MouseEvent): void {
-		if (!(event.target instanceof HTMLCanvasElement)) {
+		// Right button is reserved for the always-on camera orbit (see
+		// OrbitalControls); only the left button drives this tool, so both can
+		// be used without switching modes.
+		if (
+			event.button !== 0 ||
+			!(event.target instanceof HTMLCanvasElement)
+		) {
 			return;
 		}
 
