@@ -77,6 +77,10 @@ export interface Storage {
 	readText(ref: FileRef): Promise<string>;
 	writeText(ref: FileRef, text: string): Promise<void>;
 
+	/** Reads the raw bytes of a picked file - the binary sibling of
+	 * `readText`, for a file (e.g. a `.glb`) that isn't text. */
+	readFileBytes(ref: FileRef): Promise<Uint8Array>;
+
 	/** Opens a workspace: where `capabilities.pickFolders` is true, prompts
 	 * the user to pick a folder; where it's false, resolves to the one
 	 * implicit workspace this backend has. Resolves to null if the user

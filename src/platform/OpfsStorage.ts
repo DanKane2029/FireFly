@@ -64,11 +64,19 @@ export class OpfsStorage implements Storage {
 	}
 
 	async readText(ref: FileRef): Promise<string> {
+		return this.requireUploadedFile(ref).text();
+	}
+
+	async readFileBytes(ref: FileRef): Promise<Uint8Array> {
+		return new Uint8Array(await this.requireUploadedFile(ref).arrayBuffer());
+	}
+
+	private requireUploadedFile(ref: FileRef): File {
 		const file = this._uploadedFiles.get(ref.key);
 		if (!file) {
 			throw new Error(`No uploaded file for "${ref.key}".`);
 		}
-		return file.text();
+		return file;
 	}
 
 	async writeText(ref: FileRef, text: string): Promise<void> {

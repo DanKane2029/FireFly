@@ -58,6 +58,11 @@ function FileMenu() {
 				<MenuItem onClick={() => runAndClose(() => app.openScene())}>
 					Open…
 				</MenuItem>
+				<Divider />
+				<MenuItem onClick={() => runAndClose(() => app.importModel())}>
+					Import Model (.glb)…
+				</MenuItem>
+				<Divider />
 				<MenuItem onClick={() => runAndClose(() => app.saveScene())}>
 					{app.storageCapabilities.overwriteInPlace
 						? "Save"

@@ -99,6 +99,11 @@ export class FileSystemAccessStorage implements Storage {
 		await writable.close();
 	}
 
+	async readFileBytes(ref: FileRef): Promise<Uint8Array> {
+		const file = await this.resolveHandle(ref).getFile();
+		return new Uint8Array(await file.arrayBuffer());
+	}
+
 	async openWorkspace(): Promise<WorkspaceRef | null> {
 		const showDirectoryPicker = this.requireShowDirectoryPicker();
 		let handle: FileSystemDirectoryHandle;
