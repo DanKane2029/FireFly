@@ -15,7 +15,8 @@ import { AssetId } from "./AssetId";
  */
 export type MeshDescriptor =
 	| { kind: "primitive"; primitive: "sphere" | "box" }
-	| { kind: "builtin"; name: string };
+	| { kind: "builtin"; name: string }
+	| { kind: "gltf"; uri: string; meshIndex: number; primitiveIndex: number };
 
 /** How a material was made: a shader id plus the uniform values it feeds it. */
 export interface MaterialDescriptor {
@@ -73,6 +74,14 @@ class AssetRegistry {
 		}
 		this._meshes.set(id, { descriptor, live: mesh });
 		return id;
+	}
+
+	/** Whether a mesh is already registered under this id. Lets a caller (the
+	 * glTF importer, keying ids off a content-hashed uri) dedupe re-importing
+	 * identical content instead of treating the repeat as an error the way
+	 * registerMesh does. */
+	hasMesh(id: AssetId): boolean {
+		return this._meshes.has(id);
 	}
 
 	/** Resolves a mesh id to its live, GPU-backed `Mesh`. */

@@ -74,6 +74,23 @@ export class MemoryStorage implements Storage {
 		this._names.set(ref.key, ref.name);
 	}
 
+	private _fileBytes = new Map<string, Uint8Array>();
+
+	/** Test-only: makes `readFileBytes(ref)` resolve to `bytes` for a ref with
+	 * this key - the binary sibling of `queueOpenPick`, since there's no real
+	 * upload to seed bytes from. */
+	seedFileBytes(key: string, bytes: Uint8Array): void {
+		this._fileBytes.set(key, bytes);
+	}
+
+	async readFileBytes(ref: FileRef): Promise<Uint8Array> {
+		const bytes = this._fileBytes.get(ref.key);
+		if (!bytes) {
+			throw new Error(`No file bytes at "${ref.key}".`);
+		}
+		return bytes;
+	}
+
 	/**
 	 * Test-only: makes the next `openWorkspace()` call resolve to `ref`
 	 * (or null, simulating the user cancelling) instead of minting a fresh

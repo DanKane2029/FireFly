@@ -20,10 +20,13 @@ import {
 	spawnDragon,
 	spawnDefaultLights,
 } from "../ecs/scenes";
-import { litProgram } from "../ecs/prefabs";
+import { litProgram, spawnRenderable } from "../ecs/prefabs";
 import { MaterialRef } from "../ecs/components/MaterialRef";
 import { assetRegistry } from "../Assets/AssetRegistry";
+import { AssetId } from "../Assets/AssetId";
 import { ShaderProgram } from "../Renderer/Shader";
+import { MaterialProperty, MaterialPropertyType } from "../Renderer/Material";
+import { Texture } from "../Renderer/Texture";
 import {
 	Storage,
 	StorageCapabilities,
@@ -31,9 +34,12 @@ import {
 	WorkspaceRef,
 	RecentWorkspaceEntry,
 } from "../platform/Storage";
+import { shortContentHash } from "../platform/contentHash";
 import { serializeScene } from "../Scene/serializeScene";
 import { deserializeScene } from "../Scene/deserializeScene";
 import { SceneFile } from "../Scene/SceneFile";
+import { parseGLB } from "../Geometry/GLTFLoader";
+import { decodeImage } from "../Geometry/decodeImage";
 
 /** Shader programs a `.ffscene` material asset can reference, keyed by the
  * shader id the file stores. The scene format only knows shaders by id;
@@ -44,6 +50,7 @@ import { SceneFile } from "../Scene/SceneFile";
 const SHADER_PROGRAMS: Record<string, ShaderProgram> = { lit: litProgram };
 
 const SCENE_FILE_EXTENSION = "ffscene";
+const MODEL_FILE_EXTENSION = "glb";
 
 /**
  * The selectable test scenes, each a function that populates the ECS world with
@@ -603,6 +610,128 @@ class App {
 
 		this._currentFileRef = ref;
 		this._selectedId = null;
+		this.emit();
+	}
+
+	// --- model import ------------------------------------------------------
+
+	/**
+	 * Imports a `.glb` file: parses it (GLTFLoader.ts), decodes any texture it
+	 * references (decodeImage.ts - the DOM-dependent half GLTFLoader itself
+	 * never touches), copies its bytes into the current workspace under a
+	 * content-hashed name (opening one first if none is open - re-importing
+	 * the exact same file dedupes to the same asset id rather than piling up
+	 * duplicates), registers its meshes and materials, and spawns one entity
+	 * per mesh-bearing node at its flattened world transform (glTF nodes are
+	 * a hierarchy; the ECS is flat - see GLTFLoader's node-flattening).
+	 *
+	 * No-op if the user cancels either the file picker or - for a backend
+	 * that has to prompt one - the workspace picker.
+	 */
+	async importModel(): Promise<void> {
+		const ref = await this._storage.pickOpenFile({
+			extensions: [MODEL_FILE_EXTENSION],
+		});
+		if (!ref) {
+			return; // user cancelled
+		}
+
+		const bytes = await this._storage.readFileBytes(ref);
+		const parsed = parseGLB(bytes);
+
+		if (!this._workspace) {
+			await this.openWorkspace();
+		}
+		if (!this._workspace) {
+			return; // user cancelled the workspace picker - nowhere to put the asset
+		}
+		const workspace = this._workspace;
+
+		const hash = await shortContentHash(bytes);
+		const uri = `assets/${hash}-${ref.name}`;
+		await this._storage.writeBytes(workspace, uri, bytes);
+
+		// Decode every referenced image once, up front.
+		const textures = new Map<number, Texture>();
+		for (const [imageIndex, image] of parsed.images) {
+			textures.set(imageIndex, await decodeImage(image.bytes, image.mimeType));
+		}
+
+		// Register a material per glTF material actually used.
+		const materialIds = new Map<number, AssetId>();
+		parsed.materials.forEach((material, materialIndex) => {
+			const properties: MaterialProperty[] = [
+				{
+					type: MaterialPropertyType.VEC4,
+					name: "u_color",
+					value: material.baseColorFactor,
+				},
+			];
+			const texture =
+				material.baseColorTextureImageIndex !== null
+					? textures.get(material.baseColorTextureImageIndex)
+					: undefined;
+			if (texture) {
+				properties.push({
+					type: MaterialPropertyType.TEXTURE,
+					name: "u_texture",
+					value: texture,
+				});
+			}
+			materialIds.set(
+				materialIndex,
+				assetRegistry.createMaterial(
+					material.name ?? "Imported Material",
+					litProgram,
+					properties
+				)
+			);
+		});
+
+		// Register (or reuse, if this exact mesh was already imported - see
+		// AssetRegistry.hasMesh) each primitive's mesh, then spawn one entity
+		// per mesh-bearing node.
+		parsed.nodeInstances.forEach((instance, nodeOrder) => {
+			instance.primitives.forEach((primitive, primitiveIndex) => {
+				const meshId = `gltf/${uri}#${instance.meshIndex}.${primitiveIndex}`;
+				if (!assetRegistry.hasMesh(meshId)) {
+					assetRegistry.registerMesh(
+						meshId,
+						{
+							kind: "gltf",
+							uri,
+							meshIndex: instance.meshIndex,
+							primitiveIndex,
+						},
+						primitive.mesh
+					);
+				}
+
+				const materialId =
+					primitive.materialIndex !== null
+						? materialIds.get(primitive.materialIndex)
+						: undefined;
+				// glTF's own default (used when a primitive has no material at
+				// all): opaque white, no texture.
+				const finalMaterialId =
+					materialId ??
+					assetRegistry.createMaterial("Default Material", litProgram, [
+						{
+							type: MaterialPropertyType.VEC4,
+							name: "u_color",
+							value: [1, 1, 1, 1],
+						},
+					]);
+
+				spawnRenderable(this._world, {
+					mesh: meshId,
+					material: finalMaterialId,
+					name: instance.name ?? `Imported mesh ${nodeOrder + 1}`,
+					transform: instance.transform,
+				});
+			});
+		});
+
 		this.emit();
 	}
 
