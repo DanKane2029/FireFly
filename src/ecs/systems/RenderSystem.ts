@@ -24,6 +24,10 @@ export interface RenderContext {
 	 * caller (App.render) does and just hands it through, keeping
 	 * RenderSystem's own job strictly "turn ECS entities into Renderables". */
 	overlayRenderables?: Renderable[];
+	/** The selection outline's Renderable (see Outline.ts), if anything is
+	 * selected. Same reasoning as overlayRenderables - not ECS data, App.render
+	 * builds it, RenderSystem just forwards it. */
+	outlineRenderables?: Renderable[];
 }
 
 /**
@@ -61,6 +65,7 @@ export function renderSystem(world: World, context: RenderContext): void {
 		context.camera,
 		context.ambientLight,
 		lightPositions,
-		context.overlayRenderables
+		context.overlayRenderables,
+		context.outlineRenderables
 	);
 }

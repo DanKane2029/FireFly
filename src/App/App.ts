@@ -8,7 +8,7 @@ import { AddCubeController } from "../Controller/AddCube";
 import { OrbitalControls } from "../Controller/OrbitalCamera";
 import { GizmoController } from "../Controller/GizmoController";
 
-import { vec2, vec3, vec4 } from "gl-matrix";
+import { mat4, vec2, vec3, vec4 } from "gl-matrix";
 
 import { World } from "../ecs/World";
 import { Scheduler } from "../ecs/System";
@@ -22,7 +22,9 @@ import {
 } from "../ecs/scenes";
 import { litProgram, spawnRenderable } from "../ecs/prefabs";
 import { MaterialRef } from "../ecs/components/MaterialRef";
-import { Transform } from "../ecs/components/Transform";
+import { Transform, transformMatrix } from "../ecs/components/Transform";
+import { MeshRef } from "../ecs/components/MeshRef";
+import { buildOutlineRenderable } from "../Renderer/Outline";
 import { buildGizmoRenderables } from "../Renderer/Gizmo";
 import { assetRegistry } from "../Assets/AssetRegistry";
 import { AssetId } from "../Assets/AssetId";
@@ -811,11 +813,30 @@ class App {
 			  )
 			: undefined;
 
+		// Same reasoning as the gizmo above: not ECS data, built here from the
+		// current selection. Only entities with a mesh get one - a selected
+		// light, for instance, has nothing to outline.
+		const selectedMeshRef =
+			this._selectedId !== null
+				? this._world.get(this._selectedId, MeshRef)
+				: undefined;
+		const outlineRenderables =
+			selectedTransform && selectedMeshRef
+				? [
+						buildOutlineRenderable(
+							this._selectedId as number,
+							transformMatrix(selectedTransform, mat4.create()),
+							assetRegistry.resolveMesh(selectedMeshRef.mesh)
+						),
+				  ]
+				: undefined;
+
 		renderSystem(this._world, {
 			renderer: this._renderer,
 			camera: this._camera,
 			ambientLight: this._ambientLight,
 			overlayRenderables,
+			outlineRenderables,
 		});
 	}
 }
