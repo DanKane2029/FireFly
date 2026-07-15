@@ -1,4 +1,5 @@
 import {
+	DirectoryEntry,
 	FileRef,
 	PickSaveFileOptions,
 	RecentWorkspaceEntry,
@@ -154,6 +155,44 @@ export class MemoryStorage implements Storage {
 			this._workspaceFiles.set(workspace.key, files);
 		}
 		files.set(relativePath, bytes);
+	}
+
+	/**
+	 * There's no real directory tree here - `_workspaceFiles` is a flat
+	 * `relativePath -> bytes` map per workspace - so a "directory" is
+	 * synthesized: any stored path with more segments after `relativePath`
+	 * contributes one `directory` entry for its next segment (deduped);
+	 * a path with no further segments is a `file` entry.
+	 */
+	async listDirectory(
+		workspace: WorkspaceRef,
+		relativePath: string
+	): Promise<DirectoryEntry[]> {
+		const files = this._workspaceFiles.get(workspace.key);
+		if (!files) {
+			return [];
+		}
+
+		const prefix = relativePath === "" ? "" : `${relativePath}/`;
+		const seenDirectories = new Set<string>();
+		const entries: DirectoryEntry[] = [];
+		for (const [path, bytes] of files) {
+			if (!path.startsWith(prefix)) {
+				continue;
+			}
+			const rest = path.slice(prefix.length);
+			const slashIndex = rest.indexOf("/");
+			if (slashIndex === -1) {
+				entries.push({ name: rest, kind: "file", size: bytes.length });
+			} else {
+				const dirName = rest.slice(0, slashIndex);
+				if (!seenDirectories.has(dirName)) {
+					seenDirectories.add(dirName);
+					entries.push({ name: dirName, kind: "directory" });
+				}
+			}
+		}
+		return entries;
 	}
 
 	private touchRecent(workspace: WorkspaceRef): void {

@@ -33,6 +33,7 @@ import {
 	FileRef,
 	WorkspaceRef,
 	RecentWorkspaceEntry,
+	DirectoryEntry,
 } from "../platform/Storage";
 import { shortContentHash } from "../platform/contentHash";
 import { serializeScene } from "../Scene/serializeScene";
@@ -339,6 +340,20 @@ class App {
 	/** Previously opened workspaces, most recently opened first. */
 	recentWorkspaces(): Promise<RecentWorkspaceEntry[]> {
 		return this._storage.recentWorkspaces();
+	}
+
+	/**
+	 * Lists the direct children of a workspace-relative directory, for the
+	 * Workspace panel. `relativePath: ""` lists the open workspace's root.
+	 * Resolves to `[]` if no workspace is open - App is the sole façade
+	 * panels talk to, so this stays a thin pass-through to Storage rather
+	 * than the panel importing a backend directly.
+	 */
+	listWorkspaceDirectory(relativePath: string): Promise<DirectoryEntry[]> {
+		if (!this._workspace) {
+			return Promise.resolve([]);
+		}
+		return this._storage.listDirectory(this._workspace, relativePath);
 	}
 
 	// --- editor UI store -----------------------------------------------------

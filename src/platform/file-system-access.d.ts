@@ -21,6 +21,17 @@ interface FileSystemFileHandle {
 	}): Promise<FileSystemWritableFileStream>;
 }
 
+/** Real Chrome/Edge support iterating a directory handle's children
+ * (`for await (const [name, handle] of dir.entries())`), but this TS
+ * version's bundled lib.dom.d.ts doesn't declare it - same gap as
+ * `createWritable` above. See `directoryHandle.ts`'s `listDirectoryEntries`,
+ * the one place this is used. */
+interface FileSystemDirectoryHandle {
+	entries(): AsyncIterableIterator<
+		[string, FileSystemFileHandle | FileSystemDirectoryHandle]
+	>;
+}
+
 interface FilePickerAcceptType {
 	description?: string;
 	accept: Record<string, string[]>;

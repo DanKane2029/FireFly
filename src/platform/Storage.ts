@@ -63,6 +63,15 @@ export interface PickSaveFileOptions {
 	extensions: string[];
 }
 
+/** One direct child of a listed workspace directory - a file or a
+ * subdirectory, never a deep/recursive listing (see `Storage.listDirectory`). */
+export interface DirectoryEntry {
+	readonly name: string;
+	readonly kind: "file" | "directory";
+	/** Byte size, for files only. Undefined for directories. */
+	readonly size?: number;
+}
+
 export interface Storage {
 	readonly capabilities: StorageCapabilities;
 
@@ -105,4 +114,13 @@ export interface Storage {
 		relativePath: string,
 		bytes: Uint8Array
 	): Promise<void>;
+
+	/** Lists the direct children of a workspace-relative directory - not
+	 * recursive; a caller wanting a subdirectory's contents calls this again
+	 * with that subdirectory's path. `relativePath: ""` lists the workspace
+	 * root. */
+	listDirectory(
+		workspace: WorkspaceRef,
+		relativePath: string
+	): Promise<DirectoryEntry[]>;
 }

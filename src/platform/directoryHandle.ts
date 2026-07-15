@@ -1,3 +1,5 @@
+import { DirectoryEntry } from "./Storage";
+
 /**
  * Reads and writes bytes at a workspace-relative path within a
  * `FileSystemDirectoryHandle` root, walking intermediate directories one
@@ -53,4 +55,26 @@ export async function writeBytesToDirectory(
 	const writable = await fileHandle.createWritable();
 	await writable.write(bytes);
 	await writable.close();
+}
+
+/** Lists the direct children of a workspace-relative directory. Not
+ * recursive - a caller wanting a subdirectory's contents calls this again
+ * with that subdirectory's path. `relativePath: ""` lists `root` itself. */
+export async function listDirectoryEntries(
+	root: FileSystemDirectoryHandle,
+	relativePath: string
+): Promise<DirectoryEntry[]> {
+	const segments = relativePath.split("/").filter(Boolean);
+	const dir = await resolveDirectory(root, segments, false);
+
+	const entries: DirectoryEntry[] = [];
+	for await (const [name, handle] of dir.entries()) {
+		if (handle.kind === "file") {
+			const file = await handle.getFile();
+			entries.push({ name, kind: "file", size: file.size });
+		} else {
+			entries.push({ name, kind: "directory" });
+		}
+	}
+	return entries;
 }

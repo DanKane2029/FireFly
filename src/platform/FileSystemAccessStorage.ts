@@ -1,4 +1,5 @@
 import {
+	DirectoryEntry,
 	FileRef,
 	PickOpenFileOptions,
 	PickSaveFileOptions,
@@ -8,6 +9,7 @@ import {
 	WorkspaceRef,
 } from "./Storage";
 import {
+	listDirectoryEntries,
 	readBytesFromDirectory,
 	writeBytesToDirectory,
 } from "./directoryHandle";
@@ -172,6 +174,16 @@ export class FileSystemAccessStorage implements Storage {
 			await this.resolveWorkspaceHandle(workspace),
 			relativePath,
 			bytes
+		);
+	}
+
+	async listDirectory(
+		workspace: WorkspaceRef,
+		relativePath: string
+	): Promise<DirectoryEntry[]> {
+		return listDirectoryEntries(
+			await this.resolveWorkspaceHandle(workspace),
+			relativePath
 		);
 	}
 
