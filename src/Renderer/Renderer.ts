@@ -272,16 +272,59 @@ class Renderer {
 		renderables: Renderable[],
 		cam: Camera,
 		ambientLight: vec3,
-		lightPositions: vec3[]
+		lightPositions: vec3[],
+		overlayRenderables: Renderable[] = []
 	): void {
 		this.clear();
 
 		this.ensureResources(renderables);
+		if (overlayRenderables.length > 0) {
+			this.ensureResources(overlayRenderables);
+		}
 
 		// Render into the offscreen framebuffer so each object writes both its
 		// shaded color (attachment 0) and its id (attachment 1) in one pass.
 		this._gl.bindFramebuffer(this._gl.FRAMEBUFFER, this._frameBuffer);
 
+		this.drawRenderables(renderables, cam, ambientLight, lightPositions);
+
+		if (overlayRenderables.length > 0) {
+			// The overlay (currently just the transform gizmo) draws in a
+			// second pass with depth testing off, so its handles are always
+			// visible on top of the scene regardless of what's in front of
+			// them - a contained change rather than threading an "is this an
+			// overlay" flag through the single draw loop above. It still
+			// writes to the id-texture, so the handles stay pickable through
+			// the same GPU-picking readback as everything else.
+			this._gl.disable(this._gl.DEPTH_TEST);
+			this.drawRenderables(
+				overlayRenderables,
+				cam,
+				ambientLight,
+				lightPositions
+			);
+			this._gl.enable(this._gl.DEPTH_TEST);
+		}
+
+		// Copy the shaded color image onto the visible canvas. The id-texture
+		// (attachment 1) stays on the GPU for the Picker to read on demand.
+		this.blitColorToCanvas();
+
+		this._gl.bindFramebuffer(this._gl.FRAMEBUFFER, null);
+	}
+
+	/**
+	 * Draws one list of renderables into whichever framebuffer is currently
+	 * bound, lit by the given camera/ambient/point lights. Shared by the main
+	 * scene pass and the overlay pass in render() above - the two differ only
+	 * in depth-test state, which the caller controls.
+	 */
+	private drawRenderables(
+		renderables: Renderable[],
+		cam: Camera,
+		ambientLight: vec3,
+		lightPositions: vec3[]
+	): void {
 		renderables.forEach((obj: Renderable) => {
 			this.bindRenderable(obj);
 
@@ -332,12 +375,6 @@ class Renderer {
 			);
 			this.unbindRenderable();
 		});
-
-		// Copy the shaded color image onto the visible canvas. The id-texture
-		// (attachment 1) stays on the GPU for the Picker to read on demand.
-		this.blitColorToCanvas();
-
-		this._gl.bindFramebuffer(this._gl.FRAMEBUFFER, null);
 	}
 
 	/**

@@ -18,6 +18,12 @@ export interface RenderContext {
 	renderer: Renderer;
 	camera: Camera;
 	ambientLight: vec3;
+	/** Extra Renderables drawn in a second, depth-test-off pass after the
+	 * scene - currently just the transform gizmo's axis handles (see
+	 * Gizmo.ts). Not ECS data, so RenderSystem doesn't build this itself; the
+	 * caller (App.render) does and just hands it through, keeping
+	 * RenderSystem's own job strictly "turn ECS entities into Renderables". */
+	overlayRenderables?: Renderable[];
 }
 
 /**
@@ -54,6 +60,7 @@ export function renderSystem(world: World, context: RenderContext): void {
 		renderables,
 		context.camera,
 		context.ambientLight,
-		lightPositions
+		lightPositions,
+		context.overlayRenderables
 	);
 }
