@@ -8,6 +8,7 @@ import {
 } from "@mui/material";
 import { useApp, useEditorStore } from "../EngineContext";
 import { TOOLS, ToolId } from "../../Controller/tools";
+import { GIZMO_MODES, GizmoMode } from "../../Controller/gizmoModes";
 
 /**
  * Which tool the left mouse button uses, and a reminder of the always-on
@@ -54,6 +55,59 @@ function ToolOverlay() {
 							placement="right"
 						>
 							<tool.icon fontSize="small" />
+						</Tooltip>
+					</ToggleButton>
+				))}
+			</ToggleButtonGroup>
+		</Paper>
+	);
+}
+
+/**
+ * Which of the gizmo's three drag behaviors (move/rotate/scale) is active -
+ * only meaningful while the select tool is active, so this only renders
+ * then. Reads from Controller/gizmoModes.ts, mirroring ToolOverlay's own
+ * single-source-of-truth pattern.
+ */
+function GizmoModeOverlay() {
+	const app = useApp();
+	useEditorStore();
+
+	if (app.activeToolId !== "select") {
+		return null;
+	}
+
+	return (
+		<Paper
+			elevation={2}
+			sx={{
+				position: "absolute",
+				top: 8,
+				left: 56,
+				display: "flex",
+				gap: 0.5,
+				p: 0.5,
+				bgcolor: "rgba(30, 30, 30, 0.75)",
+			}}
+		>
+			<ToggleButtonGroup
+				orientation="horizontal"
+				exclusive
+				size="small"
+				value={app.activeGizmoModeId}
+				onChange={(_event, value: GizmoMode | null) => {
+					if (value) {
+						app.setGizmoMode(value);
+					}
+				}}
+			>
+				{GIZMO_MODES.map((mode) => (
+					<ToggleButton key={mode.id} value={mode.id}>
+						<Tooltip
+							title={`${mode.label} (${mode.key}) — ${mode.description}`}
+							placement="bottom"
+						>
+							<mode.icon fontSize="small" />
 						</Tooltip>
 					</ToggleButton>
 				))}
@@ -154,6 +208,7 @@ export function ScenePanel() {
 				}}
 			/>
 			<ToolOverlay />
+			<GizmoModeOverlay />
 			<CameraLegend />
 		</div>
 	);

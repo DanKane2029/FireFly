@@ -9,6 +9,12 @@ import {
 	toolById,
 	toolForKey,
 } from "../Controller/tools";
+import { GizmoController } from "../Controller/GizmoController";
+import {
+	GizmoMode,
+	DEFAULT_GIZMO_MODE_ID,
+	gizmoModeForKey,
+} from "../Controller/gizmoModes";
 
 import { mat4, vec2, vec3, vec4 } from "gl-matrix";
 
@@ -94,6 +100,12 @@ class App {
 	private _cameraController: OrbitalControls;
 	private _toolController: Controller;
 	private _activeToolId: ToolId;
+	// Which of the gizmo's three drag behaviors is active - independent of
+	// _activeToolId (the gizmo is only reachable through the "select" tool,
+	// but which mode it's in survives switching to another tool and back;
+	// see setTool's re-sync). Remembered here, not on the GizmoController
+	// instance itself, since setTool constructs a fresh one on every switch.
+	private _gizmoMode: GizmoMode;
 	private _storage: Storage;
 	// The file the current scene was last saved to or opened from, or null for
 	// an unsaved new scene. Reused so a second "Save" overwrites in place
@@ -142,6 +154,7 @@ class App {
 		this._cameraController = new OrbitalControls();
 		this._activeToolId = DEFAULT_TOOL_ID;
 		this._toolController = toolById(DEFAULT_TOOL_ID).create();
+		this._gizmoMode = DEFAULT_GIZMO_MODE_ID;
 		this._storage = storage;
 		this._currentFileRef = null;
 		this._workspace = null;
@@ -475,7 +488,40 @@ class App {
 	 */
 	setTool(id: ToolId): void {
 		this._activeToolId = id;
-		this._toolController = toolById(id).create();
+		const controller = toolById(id).create();
+		// A fresh GizmoController always starts in its own default mode -
+		// re-sync it to whatever mode was last active, so switching away to
+		// another tool and back doesn't silently reset it to translate.
+		if (controller instanceof GizmoController) {
+			controller.setMode(this._gizmoMode);
+		}
+		this._toolController = controller;
+		this.emit();
+	}
+
+	/**
+	 * The gizmo's currently active drag mode (move/rotate/scale). Only
+	 * meaningful while the "select" tool is active, but remembered regardless
+	 * - see the field's own doc comment.
+	 */
+	get activeGizmoModeId(): GizmoMode {
+		return this._gizmoMode;
+	}
+
+	/**
+	 * Switches the gizmo's drag mode. Forwards to the active tool controller
+	 * if it's currently a GizmoController (a no-op otherwise - e.g. while the
+	 * "addCube" tool is active - the mode is still remembered for next time
+	 * the select tool activates, via setTool's re-sync).
+	 *
+	 * @param mode - The mode to switch to, from the registry in
+	 * Controller/gizmoModes.ts
+	 */
+	setGizmoMode(mode: GizmoMode): void {
+		this._gizmoMode = mode;
+		if (this._toolController instanceof GizmoController) {
+			this._toolController.setMode(mode);
+		}
 		this.emit();
 	}
 
@@ -524,13 +570,20 @@ class App {
 
 	/**
 	 * Binds the keyboard shortcuts to the attached canvas (which must be focused).
-	 * Two groups of keys:
+	 * Three groups of keys:
 	 *
 	 * Tools (what the left mouse button does - see Controller/tools.ts for the
 	 * source of truth; the ScenePanel's toolbar reads the same list):
 	 *   s - Select/gizmo (click to select; drag a selected object's axis
-	 *       handles to move it)
+	 *       handles to move, rotate, or scale it, depending on the mode below)
 	 *   c - Add Cube (click to add a cube; drag to size it)
+	 *
+	 * Gizmo modes (which drag behavior the select tool's handles perform -
+	 * see Controller/gizmoModes.ts; only checked while "select" is active,
+	 * since w/e/r otherwise have no effect):
+	 *   w - Move
+	 *   e - Rotate
+	 *   r - Scale
 	 *
 	 * The camera (orbit: right-button drag, zoom: scroll) is always on and has
 	 * no key of its own - see `bindInputHandlers`.
@@ -551,6 +604,14 @@ class App {
 			if (tool) {
 				this.setTool(tool.id);
 				return;
+			}
+
+			if (this._activeToolId === "select") {
+				const mode = gizmoModeForKey(event.key);
+				if (mode) {
+					this.setGizmoMode(mode.id);
+					return;
+				}
 			}
 
 			switch (event.key) {
@@ -846,6 +907,7 @@ class App {
 				: undefined;
 		const overlayRenderables = selectedTransform
 			? buildGizmoRenderables(
+					this._gizmoMode,
 					selectedTransform.translation,
 					this._camera.translation
 			  )
