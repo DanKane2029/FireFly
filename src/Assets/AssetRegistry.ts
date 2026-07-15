@@ -130,8 +130,9 @@ class AssetRegistry {
 	 * Creates and registers a new material, minting a fresh id. Every call
 	 * mints its own id, even if two callers pass identical properties - that
 	 * is what keeps "recolor this one ball" from silently recoloring every
-	 * ball that happens to share a color. Shared materials should be an
-	 * explicit user action later, not an accident of two entities being
+	 * ball that happens to share a color. Sharing a material across entities
+	 * is an explicit user action (assigning the same id via MaterialRef, e.g.
+	 * from the Materials panel), never an accident of two entities being
 	 * spawned with the same call.
 	 *
 	 * @param name - A human-readable name for the material
@@ -187,6 +188,25 @@ class AssetRegistry {
 	/** The descriptor a material was created with. */
 	materialDescriptor(id: AssetId): MaterialDescriptor {
 		return this.materialEntry(id).descriptor;
+	}
+
+	/** Every registered material, for the Materials panel to list. Order is
+	 * insertion order (Map's iteration order), which is stable enough for a
+	 * UI list without needing an explicit sort key. */
+	listMaterials(): { id: AssetId; descriptor: MaterialDescriptor }[] {
+		return Array.from(this._materials.entries()).map(([id, entry]) => ({
+			id,
+			descriptor: entry.descriptor,
+		}));
+	}
+
+	/** Renames a material. Updates the live object and the descriptor
+	 * together, the same lockstep discipline `setMaterialProperty` uses -
+	 * editing just one would let a save silently lose the rename. */
+	renameMaterial(id: AssetId, name: string): void {
+		const entry = this.materialEntry(id);
+		entry.live.name = name;
+		entry.descriptor.name = name;
 	}
 
 	/**

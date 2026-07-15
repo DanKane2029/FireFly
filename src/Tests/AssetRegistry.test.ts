@@ -223,4 +223,49 @@ describe("AssetRegistry materials", () => {
 			/No material registered/
 		);
 	});
+
+	test("listMaterials returns every registered material's id and descriptor", () => {
+		const registry = new AssetRegistry();
+		const program = stubProgram();
+		const a = registry.createMaterial("Ball A", program, [
+			{
+				type: MaterialPropertyType.VEC4,
+				name: "u_color",
+				value: [1, 0, 0, 1],
+			},
+		]);
+		const b = registry.createMaterial("Ball B", program, [
+			{
+				type: MaterialPropertyType.VEC4,
+				name: "u_color",
+				value: [0, 1, 0, 1],
+			},
+		]);
+
+		const listed = registry.listMaterials();
+		expect(listed.map((m) => m.id).sort()).toEqual([a, b].sort());
+		expect(listed.find((m) => m.id === a)?.descriptor.name).toBe("Ball A");
+		expect(listed.find((m) => m.id === b)?.descriptor.name).toBe("Ball B");
+	});
+
+	test("listMaterials on an empty registry returns []", () => {
+		const registry = new AssetRegistry();
+		expect(registry.listMaterials()).toEqual([]);
+	});
+
+	test("renameMaterial updates both the live object and the descriptor", () => {
+		const registry = new AssetRegistry();
+		const id = registry.createMaterial("Ball", stubProgram(), [
+			{
+				type: MaterialPropertyType.VEC4,
+				name: "u_color",
+				value: [1, 0, 0, 1],
+			},
+		]);
+
+		registry.renameMaterial(id, "Wood");
+
+		expect(registry.resolveMaterial(id).name).toBe("Wood");
+		expect(registry.materialDescriptor(id).name).toBe("Wood");
+	});
 });

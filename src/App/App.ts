@@ -108,6 +108,7 @@ class App {
 
 	// --- editor UI store (observed by React panels) ---
 	private _selectedId: number | null;
+	private _selectedMaterialId: AssetId | null;
 	private _version: number;
 	private _listeners: Set<() => void>;
 
@@ -139,6 +140,7 @@ class App {
 		this._lastTime = 0;
 
 		this._selectedId = null;
+		this._selectedMaterialId = null;
 		this._version = 0;
 		this._listeners = new Set();
 
@@ -412,6 +414,33 @@ class App {
 		}
 	}
 
+	/**
+	 * The id of the material currently selected in the Materials panel, or
+	 * null if none is. Independent of `selectedId` (an entity) - a material
+	 * can be selected for editing without any object in the scene being
+	 * selected, since materials are their own shared assets now.
+	 */
+	get selectedMaterialId(): AssetId | null {
+		return this._selectedMaterialId;
+	}
+
+	/** Selects a material by id (or clears the selection with null). */
+	selectMaterial(id: AssetId | null): void {
+		if (id !== this._selectedMaterialId) {
+			this._selectedMaterialId = id;
+			this.emit();
+		}
+	}
+
+	/** How many entities in the world reference a material - the Materials
+	 * panel uses this to disable deleting a material still in use (deleting
+	 * it would leave those entities' MaterialRef pointing at nothing). */
+	materialUsageCount(id: AssetId): number {
+		return this._world
+			.query(MaterialRef)
+			.filter(([, materialRef]) => materialRef.material === id).length;
+	}
+
 	// --- input ---------------------------------------------------------------
 
 	/**
@@ -497,29 +526,20 @@ class App {
 	}
 
 	/**
-	 * Drops every entity's material from the registry before the world that
-	 * referenced them is cleared. Every entity's material is minted fresh for
-	 * it alone (see AssetRegistry.createMaterial), so nothing else references
-	 * it once the world is cleared - skip this and the registry grows forever
-	 * as scenes are switched, saved, or loaded. Meshes are shared built-ins
-	 * and are never disposed here.
-	 */
-	private disposeCurrentMaterials(): void {
-		const renderer = this.isAttached ? this._renderer : undefined;
-		this._world.query(MaterialRef).forEach(([, materialRef]) => {
-			assetRegistry.disposeMaterial(renderer, materialRef.material);
-		});
-	}
-
-	/**
 	 * Clears the world and repopulates it with a named test scene, clears the
 	 * selection, and notifies observing panels. The renderer uploads the new
 	 * entities' GPU resources on the next frame automatically.
 	 *
+	 * Materials are NOT disposed here, even though every entity referencing
+	 * one is about to be destroyed: they're shared, permanent registry
+	 * entries now (see AssetRegistry.listMaterials/MaterialsPanel), the same
+	 * way built-in meshes already are - disposing a material because the
+	 * scene using it was cleared would break every OTHER entity, in any
+	 * other scene, that still references it.
+	 *
 	 * @param name - A key of SCENES ("snowman", "bunny", or "dragon").
 	 */
 	loadScene(name: keyof typeof SCENES): void {
-		this.disposeCurrentMaterials();
 		this._world.clear();
 		// Lights are entities too, so clearing the world unlights it - every scene
 		// spawns the shared rig before its own contents.
@@ -539,7 +559,6 @@ class App {
 	 * containing a camera and a light" requirement.
 	 */
 	newScene(): void {
-		this.disposeCurrentMaterials();
 		this._world.clear();
 		spawnDefaultLights(this._world);
 		this._camera.translation = vec3.fromValues(0, 0, 2);
@@ -607,7 +626,6 @@ class App {
 		const text = await this._storage.readText(ref);
 		const file = JSON.parse(text) as SceneFile;
 
-		this.disposeCurrentMaterials();
 		this._world.clear();
 
 		const environment = deserializeScene(

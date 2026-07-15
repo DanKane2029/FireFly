@@ -20,21 +20,7 @@ import { MaterialRef } from "../../ecs/components/MaterialRef";
 import { Named } from "../../ecs/components/Named";
 import { Transform, TransformData } from "../../ecs/components/Transform";
 import { assetRegistry } from "../../Assets/AssetRegistry";
-
-/** Formats a 0..1 rgb(a) color as a "#rrggbb" hex string for <input type=color>. */
-function toHex(color: ArrayLike<number>): string {
-	const channel = (v: number) =>
-		Math.round(Math.max(0, Math.min(1, v)) * 255)
-			.toString(16)
-			.padStart(2, "0");
-	return `#${channel(color[0])}${channel(color[1])}${channel(color[2])}`;
-}
-
-/** Parses a "#rrggbb" hex string back into 0..1 rgb components. */
-function fromHex(hex: string): [number, number, number] {
-	const n = parseInt(hex.slice(1), 16);
-	return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
-}
+import { toHex, fromHex } from "../colorHex";
 
 const AXES = ["X", "Y", "Z"] as const;
 
@@ -308,6 +294,7 @@ export function InspectorPanel() {
 
 			{materialRef &&
 				(colorProp ? (
+					<>
 					<Stack direction="row" spacing={1} alignItems="center">
 						<Typography variant="body2">Color</Typography>
 						<Box
@@ -337,6 +324,21 @@ export function InspectorPanel() {
 							}}
 						/>
 					</Stack>
+					{app.materialUsageCount(materialRef.material) > 1 && (
+						<Typography
+							variant="caption"
+							color="text.secondary"
+							sx={{ display: "block", mt: 0.5 }}
+						>
+							Shared with {app.materialUsageCount(materialRef.material) - 1}{" "}
+							other object
+							{app.materialUsageCount(materialRef.material) - 1 === 1
+								? ""
+								: "s"}{" "}
+							- editing this color changes them too.
+						</Typography>
+					)}
+					</>
 				) : (
 					<Typography variant="body2" color="text.secondary">
 						This material has no editable color.
