@@ -2,11 +2,13 @@ import { Renderer } from "../Renderer/Renderer";
 import { Picker } from "../Renderer/Picker";
 import { Camera } from "../Renderer/Camera";
 import { Controller } from "../Controller/Controller";
-
-// controllers
-import { AddCubeController } from "../Controller/AddCube";
 import { OrbitalControls } from "../Controller/OrbitalCamera";
-import { GizmoController } from "../Controller/GizmoController";
+import {
+	ToolId,
+	DEFAULT_TOOL_ID,
+	toolById,
+	toolForKey,
+} from "../Controller/tools";
 
 import { vec2, vec3, vec4 } from "gl-matrix";
 
@@ -83,7 +85,12 @@ class App {
 	private _camera: Camera;
 	private _ambientLight: vec3;
 	private _backgroundColor: vec4;
-	private _controller: Controller;
+	// The camera is always-on and never swapped - see setTool's doc comment
+	// for why camera and tools are split into two independent controllers
+	// instead of one modal one.
+	private _cameraController: OrbitalControls;
+	private _toolController: Controller;
+	private _activeToolId: ToolId;
 	private _storage: Storage;
 	// The file the current scene was last saved to or opened from, or null for
 	// an unsaved new scene. Reused so a second "Save" overwrites in place
@@ -128,7 +135,9 @@ class App {
 		this._camera = new Camera(1, 45, 0.01, 1000);
 		this._ambientLight = vec3.fromValues(0.1, 0.1, 0.1);
 		this._backgroundColor = [0.2, 0.2, 0.2, 1.0];
-		this._controller = new OrbitalControls();
+		this._cameraController = new OrbitalControls();
+		this._activeToolId = DEFAULT_TOOL_ID;
+		this._toolController = toolById(DEFAULT_TOOL_ID).create();
 		this._storage = storage;
 		this._currentFileRef = null;
 		this._workspace = null;
@@ -197,7 +206,7 @@ class App {
 		// panel was detached.
 		this._lastTime = performance.now();
 
-		this.setController(this._controller);
+		this.bindInputHandlers();
 		this.bindKeyboard();
 	}
 
@@ -214,6 +223,7 @@ class App {
 			this._canvasElement.onmousedown = null;
 			this._canvasElement.onmouseup = null;
 			this._canvasElement.onwheel = null;
+			this._canvasElement.oncontextmenu = null;
 			if (this._keydownHandler) {
 				this._canvasElement.removeEventListener(
 					"keydown",
@@ -402,51 +412,82 @@ class App {
 	// --- input ---------------------------------------------------------------
 
 	/**
-	 * Sets the user event callback functions to specify user interactivity based
-	 * on a controller object. No-op if no canvas is attached.
-	 *
-	 * @param controller - The controller object that specifies the user interactivity.
+	 * The currently active tool - what the left mouse button does. The camera
+	 * (right mouse button, always on) isn't a tool and has no id; see
+	 * `setTool`.
 	 */
-	setController(controller: Controller): void {
-		this._controller = controller;
+	get activeToolId(): ToolId {
+		return this._activeToolId;
+	}
 
+	/**
+	 * Switches the active tool. Camera orbit/zoom keeps working no matter what
+	 * this is set to - see `bindInputHandlers` - so this only changes what the
+	 * left mouse button does.
+	 *
+	 * @param id - The tool to switch to, from the registry in Controller/tools.ts
+	 */
+	setTool(id: ToolId): void {
+		this._activeToolId = id;
+		this._toolController = toolById(id).create();
+		this.emit();
+	}
+
+	/**
+	 * Wires the canvas's mouse events. Called once when a canvas attaches, not
+	 * on every tool switch: each handler closes over `this` and reads
+	 * `this._toolController` fresh on every event, so swapping the tool in
+	 * `setTool` takes effect immediately without re-wiring anything here.
+	 *
+	 * Camera and tool are two independent controllers, not one modal one, so
+	 * that orbiting/zooming the camera never has to fight for control with
+	 * whatever tool is selected - see OrbitalControls' doc comment for how the
+	 * two stay out of each other's way (right button vs. left button). Mouse
+	 * move/down/up go to both; wheel is camera-only and click/drag are
+	 * tool-only, since only the camera uses the wheel and only tools use
+	 * click/drag today.
+	 */
+	private bindInputHandlers(): void {
 		const canvas = this._canvasElement;
 		if (!canvas) {
 			return;
 		}
 
-		// eslint-disable-next-line @typescript-eslint/no-empty-function
-		const noop = () => {};
-
-		canvas.onclick = this._controller.onClick
-			? (event: MouseEvent) => this._controller.onClick?.(this, event)
-			: noop;
-		canvas.ondrag = this._controller.onDrag
-			? (event: MouseEvent) => this._controller.onDrag?.(this, event)
-			: noop;
-		canvas.onmousemove = this._controller.onMouseMove
-			? (event: MouseEvent) => this._controller.onMouseMove?.(this, event)
-			: noop;
-		canvas.onmousedown = this._controller.onMouseDown
-			? (event: MouseEvent) => this._controller.onMouseDown?.(this, event)
-			: noop;
-		canvas.onmouseup = this._controller.onMouseUp
-			? (event: MouseEvent) => this._controller.onMouseUp?.(this, event)
-			: noop;
-		canvas.onwheel = this._controller.onWheel
-			? (event: WheelEvent) => this._controller.onWheel?.(this, event)
-			: noop;
+		canvas.onmousedown = (event: MouseEvent) => {
+			this._cameraController.onMouseDown?.(this, event);
+			this._toolController.onMouseDown?.(this, event);
+		};
+		canvas.onmousemove = (event: MouseEvent) => {
+			this._cameraController.onMouseMove?.(this, event);
+			this._toolController.onMouseMove?.(this, event);
+		};
+		canvas.onmouseup = (event: MouseEvent) => {
+			this._cameraController.onMouseUp?.(this, event);
+			this._toolController.onMouseUp?.(this, event);
+		};
+		canvas.onwheel = (event: WheelEvent) =>
+			this._cameraController.onWheel?.(this, event);
+		canvas.onclick = (event: MouseEvent) =>
+			this._toolController.onClick?.(this, event);
+		canvas.ondrag = (event: MouseEvent) =>
+			this._toolController.onDrag?.(this, event);
+		// A right-button drag orbits the camera; without this the browser's
+		// context menu would pop up on every mouse-up.
+		canvas.oncontextmenu = (event: MouseEvent) => event.preventDefault();
 	}
 
 	/**
 	 * Binds the keyboard shortcuts to the attached canvas (which must be focused).
 	 * Two groups of keys:
 	 *
-	 * Controllers (how the mouse behaves):
-	 *   o - Orbital camera controls
-	 *   c - Add Cube controls
-	 *   s - Select/gizmo controls (click to select; drag a selected
-	 *       object's axis handles to move it)
+	 * Tools (what the left mouse button does - see Controller/tools.ts for the
+	 * source of truth; the ScenePanel's toolbar reads the same list):
+	 *   s - Select/gizmo (click to select; drag a selected object's axis
+	 *       handles to move it)
+	 *   c - Add Cube (click to add a cube; drag to size it)
+	 *
+	 * The camera (orbit: right-button drag, zoom: scroll) is always on and has
+	 * no key of its own - see `bindInputHandlers`.
 	 *
 	 * Scenes (what is being rendered):
 	 *   1 - Snowman (procedural spheres)
@@ -460,16 +501,13 @@ class App {
 		}
 
 		this._keydownHandler = (event: KeyboardEvent) => {
+			const tool = toolForKey(event.key);
+			if (tool) {
+				this.setTool(tool.id);
+				return;
+			}
+
 			switch (event.key) {
-				case "c":
-					this.setController(new AddCubeController());
-					break;
-				case "o":
-					this.setController(new OrbitalControls());
-					break;
-				case "s":
-					this.setController(new GizmoController());
-					break;
 				case "1":
 					this.loadScene("snowman");
 					break;

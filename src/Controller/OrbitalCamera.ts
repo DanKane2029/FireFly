@@ -8,8 +8,13 @@ const TARGET = vec3.fromValues(0, 0, 0);
 const MIN_RADIUS = 0.05;
 
 /**
- * Trackball orbital controls: drag to rotate the camera around the target, and
- * scroll to move closer or further away.
+ * Trackball orbital camera controls: right-button drag to rotate the camera
+ * around the target, and scroll to move closer or further away. This is
+ * App's one fixed, always-on controller - unlike the swappable tools (see
+ * Controller/tools.ts), it never stops receiving events, so orbiting and
+ * zooming always works no matter which tool is active. It stays out of the
+ * tools' way by only reacting to the right mouse button, leaving the left
+ * button free for whatever tool is selected.
  *
  * Rather than tracking a latitude/longitude on a sphere (which has a singularity
  * at the poles - the camera flips when it points straight up or down), each drag
@@ -26,19 +31,28 @@ class OrbitalControls implements Controller {
 	private _zoomSensitivity = 0.1;
 
 	/**
-	 * Begins a drag by recording where the pointer went down.
+	 * Begins a drag by recording where the pointer went down. Only the right
+	 * button starts an orbit - the left button is left for tools to interpret.
 	 *
 	 * @param app - The application being interacted with
 	 * @param event - The mouse event being fired
 	 */
 	onMouseDown(app: App, event: MouseEvent): void {
+		if (event.button !== 2) {
+			return;
+		}
 		this._lastPointer = this.pointer(event);
 	}
 
 	/**
-	 * Ends the drag.
+	 * Ends the drag, if the right button was the one released.
+	 *
+	 * @param event - The mouse event being fired
 	 */
-	onMouseUp(): void {
+	onMouseUp(app: App, event: MouseEvent): void {
+		if (event.button !== 2) {
+			return;
+		}
 		this._lastPointer = undefined;
 	}
 
