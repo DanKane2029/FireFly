@@ -18,7 +18,7 @@ import {
 
 import { mat4, vec2, vec3, vec4 } from "gl-matrix";
 
-import { World } from "../ecs/World";
+import { World, Entity } from "../ecs/World";
 import { Scheduler } from "../ecs/System";
 import { renderSystem } from "../ecs/systems/RenderSystem";
 import { animationSystem } from "../ecs/systems/AnimationSystem";
@@ -30,10 +30,17 @@ import {
 } from "../ecs/scenes";
 import { litProgram, spawnRenderable } from "../ecs/prefabs";
 import { MaterialRef } from "../ecs/components/MaterialRef";
-import { Transform, transformMatrix } from "../ecs/components/Transform";
+import {
+	Transform,
+	transformMatrix,
+	transformFromMatrix,
+} from "../ecs/components/Transform";
 import { MeshRef } from "../ecs/components/MeshRef";
+import { EditorOnly } from "../ecs/components/EditorOnly";
+import { Transient } from "../ecs/components/Transient";
 import { buildOutlineRenderable } from "../Renderer/Outline";
-import { buildGizmoRenderables } from "../Renderer/Gizmo";
+import { buildGizmoHandleSpecs } from "../Renderer/Gizmo";
+import { GizmoHandle } from "../Renderer/GizmoAxis";
 import { assetRegistry } from "../Assets/AssetRegistry";
 import { AssetId } from "../Assets/AssetId";
 import { ShaderProgram } from "../Renderer/Shader";
@@ -106,6 +113,13 @@ class App {
 	// see setTool's re-sync). Remembered here, not on the GizmoController
 	// instance itself, since setTool constructs a fresh one on every switch.
 	private _gizmoMode: GizmoMode;
+	// The gizmo's handle entities (see syncGizmoEntities), and which
+	// selection+mode they were last built for - rebuilt only when either
+	// changes, not every frame (their Transforms alone are updated every
+	// frame, since the gizmo's on-screen size tracks live camera distance).
+	private _gizmoEntities: Entity[] = [];
+	private _gizmoEntitiesFor: { selection: Entity; mode: GizmoMode } | null =
+		null;
 	private _storage: Storage;
 	// The file the current scene was last saved to or opened from, or null for
 	// an unsaved new scene. Reused so a second "Save" overwrites in place
@@ -898,24 +912,23 @@ class App {
 
 		this._scheduler.run(this._world, dt, this._time);
 
-		// The gizmo isn't ECS data - it's an editor overlay tied to the
+		// Gizmo handles are real entities now (Transform + MeshRef +
+		// MaterialRef, tagged EditorOnly + Transient + GizmoHandle - see
+		// GizmoAxis.ts/Gizmo.ts) so they draw depth-tested through the normal
+		// pass below like anything else, instead of a separate always-on-top
+		// overlay pass. Synced here, before renderSystem runs, so its query
+		// picks up this frame's fresh transforms.
+		this.syncGizmoEntities();
+
+		// The outline isn't ECS data - it's an editor overlay tied to the
 		// current selection, not a world entity - so it's built here rather
-		// than inside renderSystem (see RenderContext.overlayRenderables).
+		// than inside renderSystem (see RenderContext.outlineRenderables).
+		// Only entities with a mesh get one - a selected light, for instance,
+		// has nothing to outline.
 		const selectedTransform =
 			this._selectedId !== null
 				? this._world.get(this._selectedId, Transform)
 				: undefined;
-		const overlayRenderables = selectedTransform
-			? buildGizmoRenderables(
-					this._gizmoMode,
-					selectedTransform.translation,
-					this._camera.translation
-			  )
-			: undefined;
-
-		// Same reasoning as the gizmo above: not ECS data, built here from the
-		// current selection. Only entities with a mesh get one - a selected
-		// light, for instance, has nothing to outline.
 		const selectedMeshRef =
 			this._selectedId !== null
 				? this._world.get(this._selectedId, MeshRef)
@@ -935,9 +948,76 @@ class App {
 			renderer: this._renderer,
 			camera: this._camera,
 			ambientLight: this._ambientLight,
-			overlayRenderables,
 			outlineRenderables,
 		});
+	}
+
+	/**
+	 * Keeps the gizmo's handle entities in sync with the current selection
+	 * and mode. Destroys and respawns them only when the selection or mode
+	 * actually changes (mode-switching or re-selecting is infrequent); their
+	 * Transforms are recomputed and rewritten every single frame regardless,
+	 * since the gizmo's on-screen size tracks live camera distance.
+	 */
+	private syncGizmoEntities(): void {
+		const selectedTransform =
+			this._selectedId !== null
+				? this._world.get(this._selectedId, Transform)
+				: undefined;
+
+		if (!selectedTransform) {
+			this.destroyGizmoEntities();
+			return;
+		}
+
+		const selection = this._selectedId as number;
+		const specs = buildGizmoHandleSpecs(
+			this._gizmoMode,
+			selectedTransform.translation,
+			this._camera.translation
+		);
+
+		const needsRebuild =
+			!this._gizmoEntitiesFor ||
+			this._gizmoEntitiesFor.selection !== selection ||
+			this._gizmoEntitiesFor.mode !== this._gizmoMode ||
+			this._gizmoEntities.length !== specs.length;
+
+		if (needsRebuild) {
+			this.destroyGizmoEntities();
+			this._gizmoEntities = specs.map((spec) => {
+				const entity = this._world.create();
+				this._world.add(
+					entity,
+					Transform,
+					transformFromMatrix(spec.transform)
+				);
+				this._world.add(entity, MeshRef, { mesh: spec.mesh });
+				this._world.add(entity, MaterialRef, {
+					material: spec.material,
+				});
+				this._world.add(entity, EditorOnly, {});
+				this._world.add(entity, Transient, {});
+				this._world.add(entity, GizmoHandle, { axis: spec.axis });
+				return entity;
+			});
+			this._gizmoEntitiesFor = { selection, mode: this._gizmoMode };
+			return;
+		}
+
+		specs.forEach((spec, i) => {
+			this._world.add(
+				this._gizmoEntities[i],
+				Transform,
+				transformFromMatrix(spec.transform)
+			);
+		});
+	}
+
+	private destroyGizmoEntities(): void {
+		this._gizmoEntities.forEach((entity) => this._world.destroy(entity));
+		this._gizmoEntities = [];
+		this._gizmoEntitiesFor = null;
 	}
 }
 

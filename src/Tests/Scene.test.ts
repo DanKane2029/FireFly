@@ -12,6 +12,7 @@ import { Named } from "../ecs/components/Named";
 import { PointLight } from "../ecs/components/PointLight";
 import { MeshRef } from "../ecs/components/MeshRef";
 import { MaterialRef } from "../ecs/components/MaterialRef";
+import { Transient } from "../ecs/components/Transient";
 import { serializeScene } from "../Scene/serializeScene";
 import { deserializeScene } from "../Scene/deserializeScene";
 import { MaterialAssetJSON, SceneFile } from "../Scene/SceneFile";
@@ -35,7 +36,11 @@ function buildFixture() {
 		new Sphere(1).calculateMesh(4)
 	);
 	const materialId = registry.createMaterial("Ball Material", program, [
-		{ type: MaterialPropertyType.VEC4, name: "u_color", value: [1, 0, 0, 1] },
+		{
+			type: MaterialPropertyType.VEC4,
+			name: "u_color",
+			value: [1, 0, 0, 1],
+		},
 	]);
 
 	const world = new World();
@@ -64,28 +69,53 @@ function buildFixture() {
 		backgroundColor: vec4.fromValues(0.2, 0.2, 0.2, 1),
 	};
 
-	return { registry, program, world, light, ball, materialId, camera, environment };
+	return {
+		registry,
+		program,
+		world,
+		light,
+		ball,
+		materialId,
+		camera,
+		environment,
+	};
 }
 
 describe("Scene round trip", () => {
 	test("serialize -> clear -> deserialize reproduces the world, camera, and environment", () => {
-		const { registry, program, world, light, ball, materialId, camera, environment } =
-			buildFixture();
+		const {
+			registry,
+			program,
+			world,
+			light,
+			ball,
+			materialId,
+			camera,
+			environment,
+		} = buildFixture();
 
 		const file = serializeScene(world, registry, camera, environment);
 		world.clear();
 		expect(world.entities()).toHaveLength(0);
 
 		const freshCamera = new Camera(1, 45, 0.01, 1000);
-		const restoredEnvironment = deserializeScene(file, world, registry, freshCamera, {
-			lit: program,
-		});
+		const restoredEnvironment = deserializeScene(
+			file,
+			world,
+			registry,
+			freshCamera,
+			{
+				lit: program,
+			}
+		);
 
 		expect(world.entities().sort()).toEqual([light, ball].sort());
 
 		const restoredLightTransform = world.get(light, Transform);
 		expect(restoredLightTransform).toBeDefined();
-		expect(Array.from(restoredLightTransform?.translation ?? [])).toEqual([5, 0, 10]);
+		expect(Array.from(restoredLightTransform?.translation ?? [])).toEqual([
+			5, 0, 10,
+		]);
 		expect(world.has(light, PointLight)).toBe(true);
 
 		expect(world.get(ball, Named)).toEqual({ name: "Ball" });
@@ -93,7 +123,9 @@ describe("Scene round trip", () => {
 		expect(world.get(ball, MaterialRef)).toEqual({ material: materialId });
 		const restoredSpin = world.get(ball, Spin);
 		expect(restoredSpin).toBeDefined();
-		expect(Array.from(restoredSpin?.degreesPerSecond ?? [])).toEqual([0, 25, 0]);
+		expect(Array.from(restoredSpin?.degreesPerSecond ?? [])).toEqual([
+			0, 25, 0,
+		]);
 
 		const restoredMaterial = registry.resolveMaterial(materialId);
 		expect(
@@ -123,7 +155,11 @@ describe("Scene round trip", () => {
 		const { registry, world, camera, environment } = buildFixture();
 		// An asset nothing points to (e.g. left over from a previous scene).
 		registry.createMaterial("Unused", stubProgram(), [
-			{ type: MaterialPropertyType.VEC4, name: "u_color", value: [0, 0, 0, 1] },
+			{
+				type: MaterialPropertyType.VEC4,
+				name: "u_color",
+				value: [0, 0, 0, 1],
+			},
 		]);
 
 		const file = serializeScene(world, registry, camera, environment);
@@ -134,13 +170,36 @@ describe("Scene round trip", () => {
 		expect(materialAssets[0].name).toBe("Ball Material");
 	});
 
+	test("excludes Transient entities entirely - e.g. the gizmo's handles must never reach a saved file", () => {
+		const { registry, world, ball, camera, environment } = buildFixture();
+
+		const gizmoHandle = world.create();
+		world.add(gizmoHandle, Transform, createTransform());
+		world.add(gizmoHandle, Transient, {});
+
+		const file = serializeScene(world, registry, camera, environment);
+
+		const ids = file.entities.map((e) => e.id);
+		expect(ids).toContain(ball);
+		expect(ids).not.toContain(gizmoHandle);
+	});
+
 	test("rejects a file with the wrong format tag", () => {
 		const { registry, world, camera, environment } = buildFixture();
 		const file = serializeScene(world, registry, camera, environment);
-		const bogus = { ...file, format: "not-firefly" } as unknown as SceneFile;
+		const bogus = {
+			...file,
+			format: "not-firefly",
+		} as unknown as SceneFile;
 
 		expect(() =>
-			deserializeScene(bogus, new World(), registry, new Camera(1, 45, 0.01, 1000), {})
+			deserializeScene(
+				bogus,
+				new World(),
+				registry,
+				new Camera(1, 45, 0.01, 1000),
+				{}
+			)
 		).toThrow(/Not a Firefly scene file/);
 	});
 
@@ -150,7 +209,13 @@ describe("Scene round trip", () => {
 		const bogus = { ...file, version: 99 } as unknown as SceneFile;
 
 		expect(() =>
-			deserializeScene(bogus, new World(), registry, new Camera(1, 45, 0.01, 1000), {})
+			deserializeScene(
+				bogus,
+				new World(),
+				registry,
+				new Camera(1, 45, 0.01, 1000),
+				{}
+			)
 		).toThrow(/Unsupported scene file version/);
 	});
 
@@ -164,7 +229,13 @@ describe("Scene round trip", () => {
 		};
 
 		expect(() =>
-			deserializeScene(bogus, new World(), registry, new Camera(1, 45, 0.01, 1000), {})
+			deserializeScene(
+				bogus,
+				new World(),
+				registry,
+				new Camera(1, 45, 0.01, 1000),
+				{}
+			)
 		).toThrow(/Unknown component/);
 	});
 
@@ -173,19 +244,32 @@ describe("Scene round trip", () => {
 		const file = serializeScene(world, registry, camera, environment);
 
 		expect(() =>
-			deserializeScene(file, new World(), registry, new Camera(1, 45, 0.01, 1000), {})
+			deserializeScene(
+				file,
+				new World(),
+				registry,
+				new Camera(1, 45, 0.01, 1000),
+				{}
+			)
 		).toThrow(/Unknown shader/);
 	});
 
 	test("rejects a mesh asset that isn't already registered", () => {
-		const { registry, program, world, camera, environment } = buildFixture();
+		const { registry, program, world, camera, environment } =
+			buildFixture();
 		const file = serializeScene(world, registry, camera, environment);
 
 		const emptyRegistry = new AssetRegistry();
 		expect(() =>
-			deserializeScene(file, new World(), emptyRegistry, new Camera(1, 45, 0.01, 1000), {
-				lit: program,
-			})
+			deserializeScene(
+				file,
+				new World(),
+				emptyRegistry,
+				new Camera(1, 45, 0.01, 1000),
+				{
+					lit: program,
+				}
+			)
 		).toThrow(/No mesh registered/);
 	});
 
@@ -193,7 +277,11 @@ describe("Scene round trip", () => {
 		const registry = new AssetRegistry();
 		const world = new World();
 		const materialId = registry.createMaterial("Textured", stubProgram(), [
-			{ type: MaterialPropertyType.TEXTURE, name: "u_texture", value: [0] as unknown as [number] },
+			{
+				type: MaterialPropertyType.TEXTURE,
+				name: "u_texture",
+				value: [0] as unknown as [number],
+			},
 		]);
 		const entity = world.create();
 		world.add(entity, MaterialRef, { material: materialId });

@@ -1,9 +1,10 @@
 import { vec3 } from "gl-matrix";
+import { defineComponent } from "../ecs/Component";
 
 /**
- * The gizmo's axis ids, vectors, and sizing math - kept separate from
- * Gizmo.ts (which builds the actual Renderables) specifically so this half
- * stays free of prefabs.ts's shared shader program import, which pulls in
+ * The gizmo's axis vectors and sizing math - kept separate from Gizmo.ts
+ * (which builds the actual entity specs) specifically so this half stays
+ * free of prefabs.ts's shared shader program import, which pulls in
  * webpack-only .glsl loading Jest can't transform. This file is what
  * GizmoController.ts (the input/drag-math side) and this file's own tests
  * depend on; only App.render() needs the geometry-building half.
@@ -13,31 +14,24 @@ export type GizmoAxis = "x" | "y" | "z";
 
 /**
  * Which of the gizmo's three drag behaviors is active. Only one mode's
- * handles are ever built into a frame's overlayRenderables at a time (see
- * Gizmo.ts's buildGizmoRenderables), so GIZMO_AXIS_IDS below is reused
- * unchanged across all three - there's no id collision to worry about.
+ * handles ever exist as entities at a time (see App.render()'s gizmo entity
+ * sync) - the previous mode's are destroyed before the new one's are spawned.
  */
 export type GizmoMode = "translate" | "rotate" | "scale";
 
 /**
- * Reserved ids for the gizmo's handles. Negative, so they can never collide
- * with an entity id (World hands those out starting at 1) - and specifically
- * not -1, which the id-texture is cleared to and the Picker already reads
- * back as "nothing" (see Picker.pick).
+ * Marks an entity as one of the gizmo's draggable axis handles, and which
+ * axis it drags. Gizmo handles are real entities (Transform + MeshRef +
+ * MaterialRef, like any other object - see Gizmo.ts/App.render()), so
+ * GizmoController resolves a Picker hit back to an axis via this component
+ * instead of a reserved-id scheme the way earlier versions of this gizmo
+ * did; a real entity already has a real (positive) id of its own.
  */
-export const GIZMO_AXIS_IDS: Record<GizmoAxis, number> = {
-	x: -2,
-	y: -3,
-	z: -4,
-};
-
-/** The inverse of GIZMO_AXIS_IDS, for resolving a Picker hit back to an axis. */
-export function axisForPickedId(id: number | null): GizmoAxis | null {
-	if (id === GIZMO_AXIS_IDS.x) return "x";
-	if (id === GIZMO_AXIS_IDS.y) return "y";
-	if (id === GIZMO_AXIS_IDS.z) return "z";
-	return null;
+export interface GizmoHandleData {
+	axis: GizmoAxis;
 }
+
+export const GizmoHandle = defineComponent<GizmoHandleData>("GizmoHandle");
 
 export const AXIS_VECTORS: Record<GizmoAxis, vec3> = {
 	x: vec3.fromValues(1, 0, 0),

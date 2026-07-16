@@ -263,30 +263,28 @@ class Renderer {
 	 * light, and point lights. The list is produced by the RenderSystem from the
 	 * ECS world; the Renderer itself is world-agnostic.
 	 *
-	 * @param renderables - What to draw this frame
+	 * @param renderables - What to draw this frame - includes editor-only
+	 * things like the transform gizmo's handles, which are real depth-tested
+	 * entities like anything else (see GizmoAxis.ts's EditorOnly tag) so they
+	 * can be occluded by real geometry in front of them
 	 * @param cam - The camera whose view/projection to render from
 	 * @param ambientLight - The scene ambient light color
 	 * @param lightPositions - World-space positions of the point lights
-	 * @param overlayRenderables - Drawn last, depth-test off, always on top
-	 * @param outlineRenderables - Drawn after the main pass but before the
-	 * overlay, depth-tested and backface-only (see the cullFace toggle below)
-	 * so only the sliver of each renderable that pokes out past the real
-	 * geometry - a silhouette rim - actually shows (see Outline.ts)
+	 * @param outlineRenderables - Drawn after the main pass, depth-tested and
+	 * backface-only (see the cullFace toggle below) so only the sliver of
+	 * each renderable that pokes out past the real geometry - a silhouette
+	 * rim - actually shows (see Outline.ts)
 	 */
 	render(
 		renderables: Renderable[],
 		cam: Camera,
 		ambientLight: vec3,
 		lightPositions: vec3[],
-		overlayRenderables: Renderable[] = [],
 		outlineRenderables: Renderable[] = []
 	): void {
 		this.clear();
 
 		this.ensureResources(renderables);
-		if (overlayRenderables.length > 0) {
-			this.ensureResources(overlayRenderables);
-		}
 		if (outlineRenderables.length > 0) {
 			this.ensureResources(outlineRenderables);
 		}
@@ -312,24 +310,6 @@ class Renderer {
 				lightPositions
 			);
 			this._gl.cullFace(this._gl.BACK);
-		}
-
-		if (overlayRenderables.length > 0) {
-			// The overlay (currently just the transform gizmo) draws in a
-			// second pass with depth testing off, so its handles are always
-			// visible on top of the scene regardless of what's in front of
-			// them - a contained change rather than threading an "is this an
-			// overlay" flag through the single draw loop above. It still
-			// writes to the id-texture, so the handles stay pickable through
-			// the same GPU-picking readback as everything else.
-			this._gl.disable(this._gl.DEPTH_TEST);
-			this.drawRenderables(
-				overlayRenderables,
-				cam,
-				ambientLight,
-				lightPositions
-			);
-			this._gl.enable(this._gl.DEPTH_TEST);
 		}
 
 		// Copy the shaded color image onto the visible canvas. The id-texture

@@ -6,6 +6,7 @@ import { Transform, transformMatrix } from "../components/Transform";
 import { MeshRef } from "../components/MeshRef";
 import { MaterialRef } from "../components/MaterialRef";
 import { PointLight } from "../components/PointLight";
+import { EditorOnly } from "../components/EditorOnly";
 import { assetRegistry } from "../../Assets/AssetRegistry";
 
 /**
@@ -18,16 +19,41 @@ export interface RenderContext {
 	renderer: Renderer;
 	camera: Camera;
 	ambientLight: vec3;
-	/** Extra Renderables drawn in a second, depth-test-off pass after the
-	 * scene - currently just the transform gizmo's axis handles (see
-	 * Gizmo.ts). Not ECS data, so RenderSystem doesn't build this itself; the
-	 * caller (App.render) does and just hands it through, keeping
-	 * RenderSystem's own job strictly "turn ECS entities into Renderables". */
-	overlayRenderables?: Renderable[];
 	/** The selection outline's Renderable (see Outline.ts), if anything is
-	 * selected. Same reasoning as overlayRenderables - not ECS data, App.render
-	 * builds it, RenderSystem just forwards it. */
+	 * selected. Not ECS data - App.render builds it from the current
+	 * selection each frame, RenderSystem just forwards it. */
 	outlineRenderables?: Renderable[];
+}
+
+/**
+ * Turns a world's entities into Renderables for the main render pass -
+ * shared by the interactive view (every Transform+MeshRef+MaterialRef
+ * entity, `excludeEditorOnly: false`) and the final-render panel (which
+ * excludes editor-only visual aids like the gizmo's handles and a camera
+ * entity's icon - see EditorOnly.ts - so they never appear in a "real"
+ * render). `World.query` has no NOT/exclusion primitive, so excluding a tag
+ * is a manual post-filter, not a query argument.
+ */
+export function gatherRenderables(
+	world: World,
+	options: { excludeEditorOnly: boolean }
+): Renderable[] {
+	return world
+		.query(Transform, MeshRef, MaterialRef)
+		.filter(
+			([entity]) =>
+				!options.excludeEditorOnly || !world.has(entity, EditorOnly)
+		)
+		.map(([entity, transform, meshRef, materialRef]) => {
+			const mesh = assetRegistry.resolveMesh(meshRef.mesh);
+			return {
+				id: entity,
+				transform: transformMatrix(transform, mat4.create()),
+				material: assetRegistry.resolveMaterial(materialRef.material),
+				vertexBuffer: mesh.vertexBuffer,
+				indexBuffer: mesh.indexBuffer,
+			};
+		});
 }
 
 /**
@@ -43,18 +69,7 @@ export interface RenderContext {
  * scene, and destroying it is all it takes to turn the light off.
  */
 export function renderSystem(world: World, context: RenderContext): void {
-	const renderables: Renderable[] = world
-		.query(Transform, MeshRef, MaterialRef)
-		.map(([entity, transform, meshRef, materialRef]) => {
-			const mesh = assetRegistry.resolveMesh(meshRef.mesh);
-			return {
-				id: entity,
-				transform: transformMatrix(transform, mat4.create()),
-				material: assetRegistry.resolveMaterial(materialRef.material),
-				vertexBuffer: mesh.vertexBuffer,
-				indexBuffer: mesh.indexBuffer,
-			};
-		});
+	const renderables = gatherRenderables(world, { excludeEditorOnly: false });
 
 	const lightPositions: vec3[] = world
 		.query(Transform, PointLight)
@@ -65,7 +80,6 @@ export function renderSystem(world: World, context: RenderContext): void {
 		context.camera,
 		context.ambientLight,
 		lightPositions,
-		context.overlayRenderables,
 		context.outlineRenderables
 	);
 }

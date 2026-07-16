@@ -1,12 +1,12 @@
 import { mat4, quat, vec3 } from "gl-matrix";
-import { Renderable } from "./Renderer";
-import { Material, MaterialPropertyType } from "./Material";
+import { MaterialPropertyType } from "./Material";
 import { Box } from "../Geometry/Box";
 import { Ring } from "../Geometry/Ring";
 import { litProgram } from "../ecs/prefabs";
+import { assetRegistry } from "../Assets/AssetRegistry";
+import { AssetId } from "../Assets/AssetId";
 import {
 	AXIS_VECTORS,
-	GIZMO_AXIS_IDS,
 	GizmoAxis,
 	GizmoMode,
 	axisIndex,
@@ -14,16 +14,19 @@ import {
 } from "./GizmoAxis";
 
 /**
- * Builds the draggable handles drawn over the selected object, for whichever
- * of the three drag modes (GizmoMode) is active: translate (three bars),
- * rotate (three rings), or scale (three bars with a knob at the tip).
- * Reuses GPU picking (see Picker.ts) rather than any CPU-side hit testing -
- * each handle is drawn into the id-texture like any other Renderable, just
- * with a small reserved id (GizmoAxis.ts) instead of an entity id, and
- * through an overlay pass (see Renderer.render) so it's always visible on
- * top of the scene it's manipulating. Only one mode's handles are ever
- * built for a given frame, so all three modes reuse the same axis ids
- * (GIZMO_AXIS_IDS) with no collision.
+ * Builds the specs for the gizmo's draggable handles - entities the caller
+ * (App.render()) spawns/updates in the ECS world, for whichever of the three
+ * drag modes (GizmoMode) is active: translate (three bars), rotate (three
+ * rings), or scale (three bars with a knob at the tip).
+ *
+ * Handles are real entities now (Transform + MeshRef + MaterialRef, tagged
+ * EditorOnly + Transient + GizmoHandle{axis} - see App.render()), not the
+ * ad-hoc overlay Renderables an earlier version of this file built fresh
+ * every frame outside the ECS. That's what lets them draw depth-tested
+ * through the normal render pass (occludable by real geometry) instead of a
+ * special always-on-top pass, and what lets GizmoController resolve a
+ * Picker hit back to an axis via a component lookup instead of a reserved-id
+ * scheme.
  *
  * Pulls in prefabs.ts for the shared lit shader program, which makes this
  * file - like Renderer.ts itself - untestable under Jest (no GL context, and
@@ -38,34 +41,43 @@ const RING_DETAIL = 48; // radial segments - high enough to read as round
 const SCALE_KNOB_SIZE_FRACTION = 0.25; // relative to the bar's own length
 
 // A unit cube (spans [-0.5, 0.5] on every axis), shared by every bar/knob
-// handle (translate's bars, scale's bars and tip knobs) - each is just this
-// box scaled and positioned per handle. One shared Mesh, matching the
-// module-singleton pattern prefabs.ts already uses for the built-in geometry.
-const handleMesh = new Box(vec3.fromValues(1, 1, 1)).calculateMesh();
-
-// A unit-ish ring (outer radius 1), shared by all three rotation rings -
-// each is just this scaled uniformly to the gizmo's live on-screen size and
-// oriented to face the axis it rotates around (see buildRotateHandles).
-const ringMesh = new Ring(1 - RING_THICKNESS_FRACTION, 1).calculateMesh(
-	RING_DETAIL
+// handle (translate's bars, scale's bars and tip knobs) - each entity is
+// just this box's Transform scaled and positioned per handle. Registered
+// once under a stable id, matching prefabs.ts's pattern for the built-in
+// geometry, so gizmo entities can reference it via MeshRef like any other
+// entity does.
+const gizmoBarMesh: AssetId = assetRegistry.registerMesh(
+	"mesh/gizmo-bar",
+	{ kind: "builtin", name: "gizmo-bar" },
+	new Box(vec3.fromValues(1, 1, 1)).calculateMesh()
 );
 
-const handleMaterials: Record<GizmoAxis, Material> = {
-	x: new Material("Gizmo X", litProgram, [
+// A unit-ish ring (outer radius 1), shared by all three rotation rings -
+// each entity is just this scaled uniformly to the gizmo's live on-screen
+// size and oriented to face the axis it rotates around (see
+// buildRotateHandles).
+const gizmoRingMesh: AssetId = assetRegistry.registerMesh(
+	"mesh/gizmo-ring",
+	{ kind: "builtin", name: "gizmo-ring" },
+	new Ring(1 - RING_THICKNESS_FRACTION, 1).calculateMesh(RING_DETAIL)
+);
+
+const gizmoMaterialIds: Record<GizmoAxis, AssetId> = {
+	x: assetRegistry.registerMaterial("mat/gizmo-x", "Gizmo X", litProgram, [
 		{
 			type: MaterialPropertyType.VEC4,
 			name: "u_color",
 			value: [0.9, 0.2, 0.2, 1],
 		},
 	]),
-	y: new Material("Gizmo Y", litProgram, [
+	y: assetRegistry.registerMaterial("mat/gizmo-y", "Gizmo Y", litProgram, [
 		{
 			type: MaterialPropertyType.VEC4,
 			name: "u_color",
 			value: [0.2, 0.9, 0.2, 1],
 		},
 	]),
-	z: new Material("Gizmo Z", litProgram, [
+	z: assetRegistry.registerMaterial("mat/gizmo-z", "Gizmo Z", litProgram, [
 		{
 			type: MaterialPropertyType.VEC4,
 			name: "u_color",
@@ -74,16 +86,26 @@ const handleMaterials: Record<GizmoAxis, Material> = {
 	]),
 };
 
+/** One gizmo handle entity's worth of spec: which axis it drags, which
+ * shared mesh it uses, and its computed world transform this frame. App
+ * turns this into (or updates) an actual ECS entity - see App.render(). */
+export interface GizmoHandleSpec {
+	axis: GizmoAxis;
+	mesh: AssetId;
+	material: AssetId;
+	transform: mat4;
+}
+
 /**
- * Builds the three axis-handle Renderables for a gizmo centered at
- * `position`, sized relative to `cameraPosition`'s distance from it, for
- * whichever mode is currently active.
+ * Builds the handle specs for a gizmo centered at `position`, sized relative
+ * to `cameraPosition`'s distance from it, for whichever mode is currently
+ * active.
  */
-export function buildGizmoRenderables(
+export function buildGizmoHandleSpecs(
 	mode: GizmoMode,
 	position: vec3,
 	cameraPosition: vec3
-): Renderable[] {
+): GizmoHandleSpec[] {
 	if (mode === "rotate") {
 		return buildRotateHandles(position, cameraPosition);
 	}
@@ -98,7 +120,7 @@ export function buildGizmoRenderables(
 function buildTranslateHandles(
 	position: vec3,
 	cameraPosition: vec3
-): Renderable[] {
+): GizmoHandleSpec[] {
 	const length = worldSizeForDistance(
 		vec3.distance(position, cameraPosition)
 	);
@@ -125,11 +147,10 @@ function buildTranslateHandles(
 		);
 
 		return {
-			id: GIZMO_AXIS_IDS[axis],
+			axis,
+			mesh: gizmoBarMesh,
+			material: gizmoMaterialIds[axis],
 			transform,
-			material: handleMaterials[axis],
-			vertexBuffer: handleMesh.vertexBuffer,
-			indexBuffer: handleMesh.indexBuffer,
 		};
 	});
 }
@@ -140,7 +161,7 @@ function buildTranslateHandles(
 function buildRotateHandles(
 	position: vec3,
 	cameraPosition: vec3
-): Renderable[] {
+): GizmoHandleSpec[] {
 	const radius = worldSizeForDistance(
 		vec3.distance(position, cameraPosition)
 	);
@@ -163,11 +184,10 @@ function buildRotateHandles(
 		);
 
 		return {
-			id: GIZMO_AXIS_IDS[axis],
+			axis,
+			mesh: gizmoRingMesh,
+			material: gizmoMaterialIds[axis],
 			transform,
-			material: handleMaterials[axis],
-			vertexBuffer: ringMesh.vertexBuffer,
-			indexBuffer: ringMesh.indexBuffer,
 		};
 	});
 }
@@ -175,7 +195,10 @@ function buildRotateHandles(
 /** The same three bars translate uses, plus a small cube "knob" at each
  * bar's tip - visually distinct from translate's plain bars - dragging one
  * scales the object along that axis. */
-function buildScaleHandles(position: vec3, cameraPosition: vec3): Renderable[] {
+function buildScaleHandles(
+	position: vec3,
+	cameraPosition: vec3
+): GizmoHandleSpec[] {
 	const bars = buildTranslateHandles(position, cameraPosition);
 
 	const length = worldSizeForDistance(
@@ -194,11 +217,10 @@ function buildScaleHandles(position: vec3, cameraPosition: vec3): Renderable[] {
 		);
 
 		return {
-			id: GIZMO_AXIS_IDS[axis],
+			axis,
+			mesh: gizmoBarMesh,
+			material: gizmoMaterialIds[axis],
 			transform,
-			material: handleMaterials[axis],
-			vertexBuffer: handleMesh.vertexBuffer,
-			indexBuffer: handleMesh.indexBuffer,
 		};
 	});
 
