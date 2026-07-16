@@ -57,23 +57,29 @@ export function gatherRenderables(
 }
 
 /**
+ * Every entity tagged as a PointLight contributes its Transform translation
+ * as a light position. Nothing registers a light with the renderer -
+ * spawning an entity with the tag is all it takes to light the scene, and
+ * destroying it is all it takes to turn the light off. Shared by the
+ * interactive render pass below and the final-render panel's
+ * App.renderThroughCamera, so both light a scene identically.
+ */
+export function gatherLightPositions(world: World): vec3[] {
+	return world
+		.query(Transform, PointLight)
+		.map(([, transform]) => transform.translation);
+}
+
+/**
  * Draws every renderable entity. It queries the world for entities that have a
  * Transform, a MeshRef, and a MaterialRef, turns each into a Renderable (its
  * world matrix + GPU buffers + material + entity id), and hands the batch to the
  * Renderer. The entity id becomes the picking id, so a click resolves straight
  * back to the entity.
- *
- * Lighting is a second query: every entity tagged as a PointLight contributes
- * its Transform translation as a light position. Nothing registers a light with
- * the renderer - spawning an entity with the tag is all it takes to light the
- * scene, and destroying it is all it takes to turn the light off.
  */
 export function renderSystem(world: World, context: RenderContext): void {
 	const renderables = gatherRenderables(world, { excludeEditorOnly: false });
-
-	const lightPositions: vec3[] = world
-		.query(Transform, PointLight)
-		.map(([, transform]) => transform.translation);
+	const lightPositions = gatherLightPositions(world);
 
 	context.renderer.render(
 		renderables,

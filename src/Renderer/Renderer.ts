@@ -33,6 +33,28 @@ export interface Renderable {
 }
 
 /**
+ * A second, smaller render target within the same WebGL context as the main
+ * canvas - what the final-render panel draws into (see App.renderThroughCamera
+ * and Renderer.renderToTarget). RGBA8 color only, no id-texture: nothing ever
+ * needs to pick an object in this render, so it skips the main framebuffer's
+ * dual-attachment/MRT setup entirely.
+ *
+ * A second, independent `WebGL2RenderingContext` was considered and rejected
+ * for this: every GPU resource class here (VertexBuffer, IndexBuffer, Texture,
+ * Shader, ShaderProgram) holds exactly one un-namespaced, context-bound handle,
+ * set once. Two live contexts sharing the same Mesh/Material objects would
+ * silently corrupt whichever context "creates" a resource second. Reusing the
+ * single existing context via a second framebuffer sidesteps that entirely.
+ */
+export interface OffscreenRenderTarget {
+	framebuffer: WebGLFramebuffer;
+	colorRenderbuffer: WebGLRenderbuffer;
+	depthRenderbuffer: WebGLRenderbuffer;
+	width: number;
+	height: number;
+}
+
+/**
  * Renders a list of renderables to a WebGL canvas.
  *
  * The Renderer owns the WebGL2 context and translates high-level objects
@@ -1101,6 +1123,179 @@ class Renderer {
 	}
 
 	/**
+	 * Allocates a new offscreen render target (see OffscreenRenderTarget's doc
+	 * comment) at the given pixel size, within this Renderer's own WebGL
+	 * context. Call `deleteOffscreenTarget` when done with it (e.g. the Render
+	 * panel unmounts).
+	 */
+	createOffscreenTarget(width: number, height: number): OffscreenRenderTarget {
+		const target: OffscreenRenderTarget = {
+			framebuffer: this.assertCreated(
+				this._gl.createFramebuffer(),
+				"offscreen framebuffer"
+			),
+			colorRenderbuffer: this.assertCreated(
+				this._gl.createRenderbuffer(),
+				"offscreen color renderbuffer"
+			),
+			depthRenderbuffer: this.assertCreated(
+				this._gl.createRenderbuffer(),
+				"offscreen depth renderbuffer"
+			),
+			width: 0,
+			height: 0,
+		};
+
+		this.resizeOffscreenTarget(target, width, height);
+
+		// A single color attachment - unlike the main framebuffer (initScene),
+		// this target never writes a picking id-texture, so it only ever draws
+		// into COLOR_ATTACHMENT0. Set once; draw-buffer state belongs to this
+		// FBO object and isn't touched by resizing its attachments.
+		this._gl.bindFramebuffer(this._gl.FRAMEBUFFER, target.framebuffer);
+		this._gl.drawBuffers([this._gl.COLOR_ATTACHMENT0]);
+		this._gl.bindFramebuffer(this._gl.FRAMEBUFFER, null);
+
+		return target;
+	}
+
+	/**
+	 * Resizes an offscreen render target's attachments in place, mirroring
+	 * `resize()`'s reallocation of the main framebuffer. A no-op if the size is
+	 * unchanged, so callers (e.g. a ResizeObserver-driven panel) can call this
+	 * on every observed size without worrying about redundant reallocation.
+	 */
+	resizeOffscreenTarget(
+		target: OffscreenRenderTarget,
+		width: number,
+		height: number
+	): void {
+		const w = Math.max(1, Math.floor(width));
+		const h = Math.max(1, Math.floor(height));
+		if (target.width === w && target.height === h) {
+			return;
+		}
+		target.width = w;
+		target.height = h;
+
+		this._gl.bindFramebuffer(this._gl.FRAMEBUFFER, target.framebuffer);
+
+		this._gl.bindRenderbuffer(this._gl.RENDERBUFFER, target.colorRenderbuffer);
+		this._gl.renderbufferStorage(this._gl.RENDERBUFFER, this._gl.RGBA8, w, h);
+		this._gl.framebufferRenderbuffer(
+			this._gl.FRAMEBUFFER,
+			this._gl.COLOR_ATTACHMENT0,
+			this._gl.RENDERBUFFER,
+			target.colorRenderbuffer
+		);
+
+		this._gl.bindRenderbuffer(this._gl.RENDERBUFFER, target.depthRenderbuffer);
+		this._gl.renderbufferStorage(
+			this._gl.RENDERBUFFER,
+			this._gl.DEPTH_COMPONENT16,
+			w,
+			h
+		);
+		this._gl.framebufferRenderbuffer(
+			this._gl.FRAMEBUFFER,
+			this._gl.DEPTH_ATTACHMENT,
+			this._gl.RENDERBUFFER,
+			target.depthRenderbuffer
+		);
+
+		this._gl.bindRenderbuffer(this._gl.RENDERBUFFER, null);
+
+		const status = this._gl.checkFramebufferStatus(this._gl.FRAMEBUFFER);
+		if (status !== this._gl.FRAMEBUFFER_COMPLETE) {
+			console.error(
+				`Offscreen render target framebuffer is incomplete (status 0x${status.toString(
+					16
+				)}); nothing will be drawn to it.`
+			);
+		}
+
+		this._gl.bindFramebuffer(this._gl.FRAMEBUFFER, null);
+	}
+
+	/**
+	 * Renders one list of renderables into an offscreen target instead of the
+	 * main canvas - used by the final-render panel, never by the interactive
+	 * Scene view. No outline/picking passes: this is meant to look like a
+	 * shipped render, not an editor view.
+	 *
+	 * `gl.viewport` is global GL state, not per-framebuffer, so this
+	 * temporarily points it at the target's size and restores it to the main
+	 * canvas's size afterward - otherwise the next interactive frame would
+	 * render at the wrong resolution.
+	 */
+	renderToTarget(
+		target: OffscreenRenderTarget,
+		renderables: Renderable[],
+		cam: Camera,
+		ambientLight: vec3,
+		lightPositions: vec3[]
+	): void {
+		this.ensureResources(renderables);
+
+		this._gl.bindFramebuffer(this._gl.FRAMEBUFFER, target.framebuffer);
+		this._gl.viewport(0, 0, target.width, target.height);
+		this._gl.clearColor(
+			this._clearColor[0],
+			this._clearColor[1],
+			this._clearColor[2],
+			this._clearColor[3]
+		);
+		this._gl.clear(this._gl.COLOR_BUFFER_BIT | this._gl.DEPTH_BUFFER_BIT);
+
+		this.drawRenderables(renderables, cam, ambientLight, lightPositions);
+
+		this._gl.bindFramebuffer(this._gl.FRAMEBUFFER, null);
+		this._gl.viewport(0, 0, this._canvasSize[0], this._canvasSize[1]);
+	}
+
+	/**
+	 * Reads an offscreen target's color attachment back into CPU memory as
+	 * RGBA8 - a standard, always-readable readPixels format/type combination
+	 * for any implementation, unlike the id-texture's IMPLEMENTATION_COLOR_READ_*
+	 * branching in Picker.pick(). The Render panel wraps the result in an
+	 * ImageData and draws it to a plain 2D canvas.
+	 *
+	 * readPixels' origin is the bottom-left row (WebGL/GL convention); the
+	 * result is row-flipped in place before returning so it matches
+	 * top-left-origin image formats like ImageData.
+	 */
+	readTargetPixels(target: OffscreenRenderTarget): Uint8Array {
+		const pixels = new Uint8Array(target.width * target.height * 4);
+
+		this._gl.bindFramebuffer(this._gl.FRAMEBUFFER, target.framebuffer);
+		this._gl.readBuffer(this._gl.COLOR_ATTACHMENT0);
+		this._gl.readPixels(
+			0,
+			0,
+			target.width,
+			target.height,
+			this._gl.RGBA,
+			this._gl.UNSIGNED_BYTE,
+			pixels
+		);
+		this._gl.bindFramebuffer(this._gl.FRAMEBUFFER, null);
+
+		flipRowsInPlace(pixels, target.width, target.height);
+		return pixels;
+	}
+
+	/**
+	 * Frees an offscreen target's GPU memory. Call when done with it (e.g. the
+	 * Render panel unmounts, or is about to recreate the target against a new
+	 * WebGL context - see App.rendererGeneration).
+	 */
+	deleteOffscreenTarget(target: OffscreenRenderTarget): void {
+		this._gl.deleteFramebuffer(target.framebuffer);
+		this._gl.deleteRenderbuffer(target.colorRenderbuffer);
+		this._gl.deleteRenderbuffer(target.depthRenderbuffer);
+	}
+
+	/**
 	 * Binds the buffers and material associated with a renderable so it can be
 	 * drawn. Binding the vertex array object is what actually establishes the
 	 * vertex/index buffer bindings and attribute pointers - see
@@ -1150,6 +1345,25 @@ class Renderer {
 			default:
 				throw new Error("Unidentified VertexType!");
 		}
+	}
+}
+
+/**
+ * Flips an RGBA8 pixel buffer's rows in place, converting between GL's
+ * bottom-left-origin readPixels result and a top-left-origin image format
+ * (ImageData, PNG, ...). Used by readTargetPixels; not needed anywhere else
+ * in this renderer since the main canvas is presented via blitFramebuffer,
+ * which the browser already flips correctly on its own.
+ */
+function flipRowsInPlace(pixels: Uint8Array, width: number, height: number): void {
+	const rowBytes = width * 4;
+	const rowBuffer = new Uint8Array(rowBytes);
+	for (let y = 0; y < Math.floor(height / 2); y++) {
+		const top = y * rowBytes;
+		const bottom = (height - 1 - y) * rowBytes;
+		rowBuffer.set(pixels.subarray(top, top + rowBytes));
+		pixels.copyWithin(top, bottom, bottom + rowBytes);
+		pixels.set(rowBuffer, bottom);
 	}
 }
 
