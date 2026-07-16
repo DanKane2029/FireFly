@@ -30,19 +30,29 @@ export function createTransform(
 }
 
 /**
- * Composes a transform's translation, rotation, and scale into a model matrix,
- * written into `out` (returned for convenience).
+ * Converts a transform's Euler-degrees rotation into the quaternion form
+ * gl-matrix's rotation APIs expect. Factored out of `transformMatrix` so
+ * anything that needs just the orientation - e.g. building a Renderer/Camera
+ * from a scene camera entity's Transform, see App.renderThroughCamera -
+ * doesn't have to duplicate the conversion.
  */
-export function transformMatrix(transform: TransformData, out: mat4): mat4 {
-	const rotation = quat.fromEuler(
+export function transformOrientation(transform: TransformData): quat {
+	return quat.fromEuler(
 		quat.create(),
 		transform.rotation[0],
 		transform.rotation[1],
 		transform.rotation[2]
 	);
+}
+
+/**
+ * Composes a transform's translation, rotation, and scale into a model matrix,
+ * written into `out` (returned for convenience).
+ */
+export function transformMatrix(transform: TransformData, out: mat4): mat4 {
 	return mat4.fromRotationTranslationScale(
 		out,
-		rotation,
+		transformOrientation(transform),
 		transform.translation,
 		transform.scale
 	);

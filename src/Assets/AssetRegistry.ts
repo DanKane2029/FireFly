@@ -156,6 +156,38 @@ class AssetRegistry {
 	}
 
 	/**
+	 * Registers a material under a caller-chosen, stable id, throwing if that
+	 * id is already taken - the materials analogue of `registerMesh`. For a
+	 * small fixed set of materials that are built once and reused every frame
+	 * (e.g. the gizmo's axis-colored handles, a camera entity's icon), not for
+	 * anything a user creates through the Materials panel - those still want
+	 * `createMaterial`'s always-mint-fresh-id behavior.
+	 *
+	 * @param id - The stable id to register the material under (e.g. "mat/gizmo-x")
+	 * @param name - A human-readable name for the material
+	 * @param program - The shader program the material uses
+	 * @param properties - The material's uniform values
+	 */
+	registerMaterial(
+		id: AssetId,
+		name: string,
+		program: ShaderProgram,
+		properties: MaterialProperty[]
+	): AssetId {
+		if (this._materials.has(id)) {
+			throw new Error(`Asset id "${id}" is already registered.`);
+		}
+		const live = new Material(name, program, properties.map(cloneProperty));
+		const descriptor: MaterialDescriptor = {
+			shader: "lit",
+			name,
+			properties: properties.map(cloneProperty),
+		};
+		this._materials.set(id, { descriptor, live });
+		return id;
+	}
+
+	/**
 	 * Registers a material under a caller-chosen id, overwriting whatever was
 	 * there before. Deserialization only: `createMaterial` mints a fresh id for
 	 * a brand-new material, but loading a `.ffscene` must reproduce the exact

@@ -1,4 +1,4 @@
-import { Renderer } from "../Renderer/Renderer";
+import { Renderer, OffscreenRenderTarget } from "../Renderer/Renderer";
 import { Picker } from "../Renderer/Picker";
 import { Camera } from "../Renderer/Camera";
 import { Controller } from "../Controller/Controller";
@@ -18,9 +18,13 @@ import {
 
 import { mat4, vec2, vec3, vec4 } from "gl-matrix";
 
-import { World } from "../ecs/World";
+import { World, Entity } from "../ecs/World";
 import { Scheduler } from "../ecs/System";
-import { renderSystem } from "../ecs/systems/RenderSystem";
+import {
+	renderSystem,
+	gatherRenderables,
+	gatherLightPositions,
+} from "../ecs/systems/RenderSystem";
 import { animationSystem } from "../ecs/systems/AnimationSystem";
 import {
 	spawnSnowman,
@@ -30,10 +34,19 @@ import {
 } from "../ecs/scenes";
 import { litProgram, spawnRenderable } from "../ecs/prefabs";
 import { MaterialRef } from "../ecs/components/MaterialRef";
-import { Transform, transformMatrix } from "../ecs/components/Transform";
+import {
+	Transform,
+	transformMatrix,
+	transformFromMatrix,
+	transformOrientation,
+} from "../ecs/components/Transform";
+import { CameraComponent } from "../ecs/components/Camera";
 import { MeshRef } from "../ecs/components/MeshRef";
+import { EditorOnly } from "../ecs/components/EditorOnly";
+import { Transient } from "../ecs/components/Transient";
 import { buildOutlineRenderable } from "../Renderer/Outline";
-import { buildGizmoRenderables } from "../Renderer/Gizmo";
+import { buildGizmoHandleSpecs } from "../Renderer/Gizmo";
+import { GizmoHandle } from "../Renderer/GizmoAxis";
 import { assetRegistry } from "../Assets/AssetRegistry";
 import { AssetId } from "../Assets/AssetId";
 import { ShaderProgram } from "../Renderer/Shader";
@@ -106,6 +119,13 @@ class App {
 	// see setTool's re-sync). Remembered here, not on the GizmoController
 	// instance itself, since setTool constructs a fresh one on every switch.
 	private _gizmoMode: GizmoMode;
+	// The gizmo's handle entities (see syncGizmoEntities), and which
+	// selection+mode they were last built for - rebuilt only when either
+	// changes, not every frame (their Transforms alone are updated every
+	// frame, since the gizmo's on-screen size tracks live camera distance).
+	private _gizmoEntities: Entity[] = [];
+	private _gizmoEntitiesFor: { selection: Entity; mode: GizmoMode } | null =
+		null;
 	private _storage: Storage;
 	// The file the current scene was last saved to or opened from, or null for
 	// an unsaved new scene. Reused so a second "Save" overwrites in place
@@ -128,6 +148,8 @@ class App {
 	private _picker: Picker | undefined;
 	private _canvasElement: HTMLCanvasElement | undefined;
 	private _keydownHandler: ((event: KeyboardEvent) => void) | undefined;
+	// Bumped every attach/detach - see rendererGeneration's doc comment.
+	private _rendererGeneration = 0;
 
 	// --- editor UI store (observed by React panels) ---
 	private _selectedId: number | null;
@@ -226,6 +248,11 @@ class App {
 
 		this.bindInputHandlers();
 		this.bindKeyboard();
+		this._rendererGeneration++;
+		// Notifies observers like the Render panel, whose empty state depends
+		// on isAttached - without this, closing/reopening the Scene panel
+		// wouldn't re-render anything watching that (see detachCanvas below).
+		this.emit();
 	}
 
 	/**
@@ -253,6 +280,8 @@ class App {
 		this._renderer = undefined;
 		this._picker = undefined;
 		this._canvasElement = undefined;
+		this._rendererGeneration++;
+		this.emit();
 	}
 
 	/**
@@ -273,6 +302,102 @@ class App {
 		this._canvasElement.height = h;
 		this._renderer.resize(w, h);
 		this._camera.aspectRatio = w / h;
+	}
+
+	// --- final render (through a scene camera entity) -----------------------
+
+	/**
+	 * Creates an offscreen render target for the Render panel, backed by the
+	 * same WebGL context as the interactive Scene view (see
+	 * OffscreenRenderTarget's doc comment for why a second context isn't an
+	 * option). Returns null if no Scene panel is currently attached - there is
+	 * no context yet to render with.
+	 */
+	createRenderTarget(width: number, height: number): OffscreenRenderTarget | null {
+		if (!this._renderer) {
+			return null;
+		}
+		return this._renderer.createOffscreenTarget(width, height);
+	}
+
+	/**
+	 * Resizes a render target created by `createRenderTarget`. No-op if no
+	 * Scene panel is attached.
+	 */
+	resizeRenderTarget(
+		target: OffscreenRenderTarget,
+		width: number,
+		height: number
+	): void {
+		if (!this._renderer) {
+			return;
+		}
+		this._renderer.resizeOffscreenTarget(target, width, height);
+	}
+
+	/**
+	 * Renders the world through a camera entity into a render target and reads
+	 * the pixels back - the Render panel's "final" view, which (unlike the
+	 * interactive Scene view) excludes editor-only visual aids like gizmo
+	 * handles and camera icons (see gatherRenderables's excludeEditorOnly).
+	 *
+	 * Builds a fresh Renderer/Camera each call from the entity's Transform +
+	 * CameraComponent rather than keeping one around - cheap (Camera is a
+	 * plain data/math object, no GPU resources of its own - see Camera.ts) and
+	 * it means a camera entity dragged or rotated via the gizmo is reflected
+	 * immediately, with no separate sync step to keep in mind.
+	 *
+	 * Returns null if no Scene panel is attached, or if `cameraEntity` isn't
+	 * (or is no longer - e.g. it was deleted) a camera.
+	 */
+	renderThroughCamera(
+		target: OffscreenRenderTarget,
+		cameraEntity: Entity
+	): { pixels: Uint8Array; width: number; height: number } | null {
+		if (!this._renderer) {
+			return null;
+		}
+		const transform = this._world.get(cameraEntity, Transform);
+		const cameraData = this._world.get(cameraEntity, CameraComponent);
+		if (!transform || !cameraData) {
+			return null;
+		}
+
+		const camera = new Camera(
+			target.width / target.height,
+			cameraData.fov,
+			cameraData.near,
+			cameraData.far
+		);
+		camera.translation = transform.translation;
+		camera.orientation = transformOrientation(transform);
+
+		const renderables = gatherRenderables(this._world, {
+			excludeEditorOnly: true,
+		});
+		const lightPositions = gatherLightPositions(this._world);
+
+		this._renderer.renderToTarget(
+			target,
+			renderables,
+			camera,
+			this._ambientLight,
+			lightPositions
+		);
+		const pixels = this._renderer.readTargetPixels(target);
+
+		return { pixels, width: target.width, height: target.height };
+	}
+
+	/**
+	 * Deletes a render target created by `createRenderTarget`. No-op if no
+	 * Scene panel is attached.
+	 */
+	deleteRenderTarget(target: OffscreenRenderTarget): void {
+		if (!this._renderer) {
+			return;
+		}
+		this._renderer.deleteOffscreenTarget(target);
 	}
 
 	/**
@@ -316,6 +441,21 @@ class App {
 	 */
 	get isAttached(): boolean {
 		return this._renderer !== undefined;
+	}
+
+	/**
+	 * Bumped every time a Scene panel attaches or detaches its canvas - and
+	 * therefore creates or destroys the WebGL context (see attachCanvas: it
+	 * always calls `canvas.getContext("webgl2", ...)` fresh, never reuses one).
+	 * A render target from a previous generation (see createRenderTarget) holds
+	 * GPU resource handles that belong to a context which may no longer exist;
+	 * the Render panel compares this against the generation it created its
+	 * target under to know when to throw the old one away and make a new one,
+	 * rather than issuing GL calls against the current context with a handle
+	 * from a different, possibly-destroyed one.
+	 */
+	get rendererGeneration(): number {
+		return this._rendererGeneration;
 	}
 
 	/**
@@ -898,24 +1038,23 @@ class App {
 
 		this._scheduler.run(this._world, dt, this._time);
 
-		// The gizmo isn't ECS data - it's an editor overlay tied to the
+		// Gizmo handles are real entities now (Transform + MeshRef +
+		// MaterialRef, tagged EditorOnly + Transient + GizmoHandle - see
+		// GizmoAxis.ts/Gizmo.ts) so they draw depth-tested through the normal
+		// pass below like anything else, instead of a separate always-on-top
+		// overlay pass. Synced here, before renderSystem runs, so its query
+		// picks up this frame's fresh transforms.
+		this.syncGizmoEntities();
+
+		// The outline isn't ECS data - it's an editor overlay tied to the
 		// current selection, not a world entity - so it's built here rather
-		// than inside renderSystem (see RenderContext.overlayRenderables).
+		// than inside renderSystem (see RenderContext.outlineRenderables).
+		// Only entities with a mesh get one - a selected light, for instance,
+		// has nothing to outline.
 		const selectedTransform =
 			this._selectedId !== null
 				? this._world.get(this._selectedId, Transform)
 				: undefined;
-		const overlayRenderables = selectedTransform
-			? buildGizmoRenderables(
-					this._gizmoMode,
-					selectedTransform.translation,
-					this._camera.translation
-			  )
-			: undefined;
-
-		// Same reasoning as the gizmo above: not ECS data, built here from the
-		// current selection. Only entities with a mesh get one - a selected
-		// light, for instance, has nothing to outline.
 		const selectedMeshRef =
 			this._selectedId !== null
 				? this._world.get(this._selectedId, MeshRef)
@@ -935,9 +1074,76 @@ class App {
 			renderer: this._renderer,
 			camera: this._camera,
 			ambientLight: this._ambientLight,
-			overlayRenderables,
 			outlineRenderables,
 		});
+	}
+
+	/**
+	 * Keeps the gizmo's handle entities in sync with the current selection
+	 * and mode. Destroys and respawns them only when the selection or mode
+	 * actually changes (mode-switching or re-selecting is infrequent); their
+	 * Transforms are recomputed and rewritten every single frame regardless,
+	 * since the gizmo's on-screen size tracks live camera distance.
+	 */
+	private syncGizmoEntities(): void {
+		const selectedTransform =
+			this._selectedId !== null
+				? this._world.get(this._selectedId, Transform)
+				: undefined;
+
+		if (!selectedTransform) {
+			this.destroyGizmoEntities();
+			return;
+		}
+
+		const selection = this._selectedId as number;
+		const specs = buildGizmoHandleSpecs(
+			this._gizmoMode,
+			selectedTransform.translation,
+			this._camera.translation
+		);
+
+		const needsRebuild =
+			!this._gizmoEntitiesFor ||
+			this._gizmoEntitiesFor.selection !== selection ||
+			this._gizmoEntitiesFor.mode !== this._gizmoMode ||
+			this._gizmoEntities.length !== specs.length;
+
+		if (needsRebuild) {
+			this.destroyGizmoEntities();
+			this._gizmoEntities = specs.map((spec) => {
+				const entity = this._world.create();
+				this._world.add(
+					entity,
+					Transform,
+					transformFromMatrix(spec.transform)
+				);
+				this._world.add(entity, MeshRef, { mesh: spec.mesh });
+				this._world.add(entity, MaterialRef, {
+					material: spec.material,
+				});
+				this._world.add(entity, EditorOnly, {});
+				this._world.add(entity, Transient, {});
+				this._world.add(entity, GizmoHandle, { axis: spec.axis });
+				return entity;
+			});
+			this._gizmoEntitiesFor = { selection, mode: this._gizmoMode };
+			return;
+		}
+
+		specs.forEach((spec, i) => {
+			this._world.add(
+				this._gizmoEntities[i],
+				Transform,
+				transformFromMatrix(spec.transform)
+			);
+		});
+	}
+
+	private destroyGizmoEntities(): void {
+		this._gizmoEntities.forEach((entity) => this._world.destroy(entity));
+		this._gizmoEntities = [];
+		this._gizmoEntitiesFor = null;
 	}
 }
 

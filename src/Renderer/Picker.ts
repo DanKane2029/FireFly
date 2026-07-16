@@ -77,10 +77,11 @@ class Picker {
 			gl.readPixels(pixelX, pixelY, 1, 1, format, type, data);
 
 			if (gl.getError() === gl.NO_ERROR) {
-				// -1 is the clear value: nothing was drawn here. Other negative
-				// ids are valid picks - the gizmo's axis handles are drawn with
-				// small reserved negative ids (see Gizmo.ts) precisely so they
-				// can never collide with an entity id (always positive).
+				// -1 is the clear value: nothing was drawn here. Every real
+				// pick is an entity id, always positive (World hands those
+				// out starting at 1) - the gizmo's handles are real entities
+				// like anything else now (see GizmoAxis.ts's GizmoHandle),
+				// with no reserved id range of their own.
 				id = data[0] === -1 ? null : data[0];
 			} else {
 				console.warn("GPU picking: failed to read the id-texture.");
