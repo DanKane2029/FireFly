@@ -6,6 +6,7 @@ import { Transform, transformMatrix } from "../components/Transform";
 import { MeshRef } from "../components/MeshRef";
 import { MaterialRef } from "../components/MaterialRef";
 import { PointLight } from "../components/PointLight";
+import { EditorOnly } from "../components/EditorOnly";
 import { assetRegistry } from "../../Assets/AssetRegistry";
 
 /**
@@ -18,33 +19,31 @@ export interface RenderContext {
 	renderer: Renderer;
 	camera: Camera;
 	ambientLight: vec3;
-	/** Extra Renderables drawn in a second, depth-test-off pass after the
-	 * scene - currently just the transform gizmo's axis handles (see
-	 * Gizmo.ts). Not ECS data, so RenderSystem doesn't build this itself; the
-	 * caller (App.render) does and just hands it through, keeping
-	 * RenderSystem's own job strictly "turn ECS entities into Renderables". */
-	overlayRenderables?: Renderable[];
 	/** The selection outline's Renderable (see Outline.ts), if anything is
-	 * selected. Same reasoning as overlayRenderables - not ECS data, App.render
-	 * builds it, RenderSystem just forwards it. */
+	 * selected. Not ECS data - App.render builds it from the current
+	 * selection each frame, RenderSystem just forwards it. */
 	outlineRenderables?: Renderable[];
 }
 
 /**
- * Draws every renderable entity. It queries the world for entities that have a
- * Transform, a MeshRef, and a MaterialRef, turns each into a Renderable (its
- * world matrix + GPU buffers + material + entity id), and hands the batch to the
- * Renderer. The entity id becomes the picking id, so a click resolves straight
- * back to the entity.
- *
- * Lighting is a second query: every entity tagged as a PointLight contributes
- * its Transform translation as a light position. Nothing registers a light with
- * the renderer - spawning an entity with the tag is all it takes to light the
- * scene, and destroying it is all it takes to turn the light off.
+ * Turns a world's entities into Renderables for the main render pass -
+ * shared by the interactive view (every Transform+MeshRef+MaterialRef
+ * entity, `excludeEditorOnly: false`) and the final-render panel (which
+ * excludes editor-only visual aids like the gizmo's handles and a camera
+ * entity's icon - see EditorOnly.ts - so they never appear in a "real"
+ * render). `World.query` has no NOT/exclusion primitive, so excluding a tag
+ * is a manual post-filter, not a query argument.
  */
-export function renderSystem(world: World, context: RenderContext): void {
-	const renderables: Renderable[] = world
+export function gatherRenderables(
+	world: World,
+	options: { excludeEditorOnly: boolean }
+): Renderable[] {
+	return world
 		.query(Transform, MeshRef, MaterialRef)
+		.filter(
+			([entity]) =>
+				!options.excludeEditorOnly || !world.has(entity, EditorOnly)
+		)
 		.map(([entity, transform, meshRef, materialRef]) => {
 			const mesh = assetRegistry.resolveMesh(meshRef.mesh);
 			return {
@@ -55,17 +54,38 @@ export function renderSystem(world: World, context: RenderContext): void {
 				indexBuffer: mesh.indexBuffer,
 			};
 		});
+}
 
-	const lightPositions: vec3[] = world
+/**
+ * Every entity tagged as a PointLight contributes its Transform translation
+ * as a light position. Nothing registers a light with the renderer -
+ * spawning an entity with the tag is all it takes to light the scene, and
+ * destroying it is all it takes to turn the light off. Shared by the
+ * interactive render pass below and the final-render panel's
+ * App.renderThroughCamera, so both light a scene identically.
+ */
+export function gatherLightPositions(world: World): vec3[] {
+	return world
 		.query(Transform, PointLight)
 		.map(([, transform]) => transform.translation);
+}
+
+/**
+ * Draws every renderable entity. It queries the world for entities that have a
+ * Transform, a MeshRef, and a MaterialRef, turns each into a Renderable (its
+ * world matrix + GPU buffers + material + entity id), and hands the batch to the
+ * Renderer. The entity id becomes the picking id, so a click resolves straight
+ * back to the entity.
+ */
+export function renderSystem(world: World, context: RenderContext): void {
+	const renderables = gatherRenderables(world, { excludeEditorOnly: false });
+	const lightPositions = gatherLightPositions(world);
 
 	context.renderer.render(
 		renderables,
 		context.camera,
 		context.ambientLight,
 		lightPositions,
-		context.overlayRenderables,
 		context.outlineRenderables
 	);
 }

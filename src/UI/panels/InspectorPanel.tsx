@@ -19,6 +19,7 @@ import {
 import { MaterialRef } from "../../ecs/components/MaterialRef";
 import { Named } from "../../ecs/components/Named";
 import { Transform, TransformData } from "../../ecs/components/Transform";
+import { CameraComponent, CameraData } from "../../ecs/components/Camera";
 import { assetRegistry } from "../../Assets/AssetRegistry";
 import { toHex, fromHex } from "../colorHex";
 
@@ -246,20 +247,69 @@ function TransformEditor({ transform, onChange }: TransformEditorProps) {
 	);
 }
 
+interface CameraEditorProps {
+	camera: CameraData;
+	onChange: () => void;
+}
+
+/** Numeric FOV/near/far editing for a camera entity - what the Render panel
+ * builds a live Renderer/Camera.ts instance from when rendering through this
+ * entity. Same direct-mutate-then-notify pattern as TransformEditor. */
+function CameraEditor({ camera, onChange }: CameraEditorProps) {
+	return (
+		<Box sx={{ mt: 1.5 }}>
+			<Typography variant="subtitle2">Camera</Typography>
+			<Stack direction="row" spacing={1} sx={{ mt: 0.5 }}>
+				<NumberField
+					label="FOV °"
+					value={camera.fov}
+					step={1}
+					onCommit={(v) => {
+						camera.fov = v;
+						onChange();
+					}}
+				/>
+				<NumberField
+					label="Near"
+					value={camera.near}
+					step={0.01}
+					onCommit={(v) => {
+						camera.near = v;
+						onChange();
+					}}
+				/>
+				<NumberField
+					label="Far"
+					value={camera.far}
+					step={10}
+					onCommit={(v) => {
+						camera.far = v;
+						onChange();
+					}}
+				/>
+			</Stack>
+		</Box>
+	);
+}
+
 /**
  * Edits the currently selected entity: its Transform (translation/rotation/
- * scale, numerically) and its material's `u_color` uniform, via a color
- * swatch. Each section only renders if the entity actually has that
- * component, so this works for entities that have one but not the other.
+ * scale, numerically), its Camera properties (FOV/near/far) if it's a camera
+ * entity, and its material's `u_color` uniform via a color swatch. Each
+ * section only renders if the entity actually has that component, so this
+ * works for entities that have any subset of them.
  */
 export function InspectorPanel() {
 	const app = useEditorStore();
 	const entity = app.selectedId;
-	const transform = entity !== null ? app.world.get(entity, Transform) : undefined;
+	const transform =
+		entity !== null ? app.world.get(entity, Transform) : undefined;
+	const camera =
+		entity !== null ? app.world.get(entity, CameraComponent) : undefined;
 	const materialRef =
 		entity !== null ? app.world.get(entity, MaterialRef) : undefined;
 
-	if (entity === null || (!transform && !materialRef)) {
+	if (entity === null || (!transform && !camera && !materialRef)) {
 		return (
 			<Typography variant="body2" color="text.secondary" sx={{ p: 1.5 }}>
 				Select an object to edit it.
@@ -290,54 +340,76 @@ export function InspectorPanel() {
 				/>
 			)}
 
-			{transform && materialRef && <Divider sx={{ my: 1.5 }} />}
+			{transform && (camera || materialRef) && (
+				<Divider sx={{ my: 1.5 }} />
+			)}
+
+			{camera && (
+				<CameraEditor
+					camera={camera}
+					onChange={() => app.notifyChanged()}
+				/>
+			)}
+
+			{camera && materialRef && <Divider sx={{ my: 1.5 }} />}
 
 			{materialRef &&
 				(colorProp ? (
 					<>
-					<Stack direction="row" spacing={1} alignItems="center">
-						<Typography variant="body2">Color</Typography>
-						<Box
-							component="input"
-							type="color"
-							value={toHex(colorProp.value as ArrayLike<number>)}
-							onChange={(event: ChangeEvent<HTMLInputElement>) => {
-								const [r, g, b] = fromHex(event.target.value);
-								const current = colorProp.value as ArrayLike<number>;
-								const alpha = current[3] ?? 1;
-								assetRegistry.setMaterialProperty(
-									materialRef.material,
-									"u_color",
-									[r, g, b, alpha]
-								);
-								app.notifyChanged();
-							}}
-							sx={{
-								width: 40,
-								height: 28,
-								p: 0,
-								border: 1,
-								borderColor: "divider",
-								borderRadius: 1,
-								background: "none",
-								cursor: "pointer",
-							}}
-						/>
-					</Stack>
-					{app.materialUsageCount(materialRef.material) > 1 && (
-						<Typography
-							variant="caption"
-							color="text.secondary"
-							sx={{ display: "block", mt: 0.5 }}
-						>
-							Shared with {app.materialUsageCount(materialRef.material) - 1}{" "}
-							other object
-							{app.materialUsageCount(materialRef.material) - 1 === 1
-								? ""
-								: "s"}{" "}
-							- editing this color changes them too.
-						</Typography>
-					)}
+						<Stack direction="row" spacing={1} alignItems="center">
+							<Typography variant="body2">Color</Typography>
+							<Box
+								component="input"
+								type="color"
+								value={toHex(
+									colorProp.value as ArrayLike<number>
+								)}
+								onChange={(
+									event: ChangeEvent<HTMLInputElement>
+								) => {
+									const [r, g, b] = fromHex(
+										event.target.value
+									);
+									const current =
+										colorProp.value as ArrayLike<number>;
+									const alpha = current[3] ?? 1;
+									assetRegistry.setMaterialProperty(
+										materialRef.material,
+										"u_color",
+										[r, g, b, alpha]
+									);
+									app.notifyChanged();
+								}}
+								sx={{
+									width: 40,
+									height: 28,
+									p: 0,
+									border: 1,
+									borderColor: "divider",
+									borderRadius: 1,
+									background: "none",
+									cursor: "pointer",
+								}}
+							/>
+						</Stack>
+						{app.materialUsageCount(materialRef.material) > 1 && (
+							<Typography
+								variant="caption"
+								color="text.secondary"
+								sx={{ display: "block", mt: 0.5 }}
+							>
+								Shared with{" "}
+								{app.materialUsageCount(materialRef.material) -
+									1}{" "}
+								other object
+								{app.materialUsageCount(materialRef.material) -
+									1 ===
+								1
+									? ""
+									: "s"}{" "}
+								- editing this color changes them too.
+							</Typography>
+						)}
 					</>
 				) : (
 					<Typography variant="body2" color="text.secondary">

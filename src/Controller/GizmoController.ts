@@ -13,8 +13,8 @@ import { signedAngleAroundAxis } from "../Math/Angles";
 import {
 	AXIS_VECTORS,
 	GizmoAxis,
+	GizmoHandle,
 	GizmoMode,
-	axisForPickedId,
 	axisIndex,
 } from "../Renderer/GizmoAxis";
 
@@ -25,7 +25,8 @@ const MIN_SCALE = 0.01;
 
 /**
  * Click an object to select it, same as SelectObjectController - but a
- * selected object grows draggable axis handles (App.render() builds them via
+ * selected object grows draggable axis handles (App.render() spawns/updates
+ * them as real entities - see App.render()'s gizmo entity sync and
  * Gizmo.ts), and clicking one of those instead starts a drag that moves,
  * rotates, or scales the object along that axis, depending on which mode is
  * active (see setMode). Supersedes SelectObjectController (a select tool
@@ -91,15 +92,31 @@ class GizmoController implements Controller {
 
 		const pixel = this.idTexturePixel(app, event);
 		const pickedId = app.picker.pick(pixel[0], pixel[1]);
-		const axis = axisForPickedId(pickedId);
+		const handle =
+			pickedId !== null
+				? app.world.get(pickedId, GizmoHandle)
+				: undefined;
 
-		if (axis && app.selectedId !== null) {
+		if (handle && app.selectedId !== null) {
 			const transform = app.world.get(app.selectedId, Transform);
-			if (transform && this.startDrag(app, event, axis, transform)) {
-				this._draggingAxis = axis;
+			if (
+				transform &&
+				this.startDrag(app, event, handle.axis, transform)
+			) {
+				this._draggingAxis = handle.axis;
 				this._dragEntity = app.selectedId;
 				return;
 			}
+		}
+
+		// A gizmo handle is never itself selectable - it has no Named and is
+		// meant to be invisible as a "scene object" (see GizmoAxis.ts's
+		// GizmoHandle doc comment). Without this, a handle that failed to
+		// start a drag (e.g. rotate's degenerate camera-angle case) would
+		// fall through to being selected like a real entity, since it now
+		// carries a real (positive) entity id of its own.
+		if (handle) {
+			return;
 		}
 
 		app.select(pickedId);

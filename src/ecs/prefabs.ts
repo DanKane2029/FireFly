@@ -3,6 +3,7 @@ import { Shader, ShaderProgram, ShaderType } from "../Renderer/Shader";
 import { MaterialPropertyType } from "../Renderer/Material";
 import { Sphere } from "../Geometry/Sphere";
 import { Box } from "../Geometry/Box";
+import { Frustum } from "../Geometry/Frustum";
 import { parseOBJ } from "../Geometry/OBJLoader";
 import VertLightingShader from "../Shaders/Lighting.vert.glsl";
 import FragLightingShader from "../Shaders/Lighting.frag.glsl";
@@ -20,6 +21,8 @@ import {
 import { MeshRef } from "./components/MeshRef";
 import { MaterialRef } from "./components/MaterialRef";
 import { Named } from "./components/Named";
+import { CameraComponent } from "./components/Camera";
+import { EditorOnly } from "./components/EditorOnly";
 import { AssetId } from "../Assets/AssetId";
 import { assetRegistry } from "../Assets/AssetRegistry";
 
@@ -77,6 +80,29 @@ export const dragonMesh: AssetId = assetRegistry.registerMesh(
 	parseOBJ(dragonObj)
 );
 
+// A camera entity's viewport icon: a small pyramid pointing down -Z (this
+// engine's forward convention), unlit (a flat, always-legible marker color
+// regardless of scene lighting - see prefabs.ts's unlitProgram). One shared
+// mesh/material, matching every other built-in asset's registered-once
+// pattern - see spawnCamera.
+export const cameraIconMesh: AssetId = assetRegistry.registerMesh(
+	"mesh/camera-icon",
+	{ kind: "builtin", name: "camera-icon" },
+	new Frustum(vec3.fromValues(0.12, 0.08, 0.2)).calculateMesh()
+);
+export const cameraIconMaterial: AssetId = assetRegistry.registerMaterial(
+	"mat/camera-icon",
+	"Camera Icon",
+	unlitProgram,
+	[
+		{
+			type: MaterialPropertyType.VEC4,
+			name: "u_color",
+			value: [0.9, 0.9, 0.9, 1],
+		},
+	]
+);
+
 /** The components every drawable entity needs. */
 export interface RenderableSpec {
 	mesh: AssetId;
@@ -111,4 +137,41 @@ export function spawnCube(
 			scale: options.scale,
 		}),
 	});
+}
+
+// Sensible defaults for a freshly spawned camera - close to the interactive
+// orbit camera's own starting fovy/near/far (App's buildWorld()), so a new
+// camera entity's Render panel output looks reasonable immediately.
+const DEFAULT_CAMERA_FOV = 45;
+const DEFAULT_CAMERA_NEAR = 0.1;
+const DEFAULT_CAMERA_FAR = 1000;
+
+/**
+ * Spawns a camera entity: a real, persisted scene object (Transform +
+ * CameraComponent + Named, so it saves and lists normally - see
+ * ComponentCodecs.ts and ObjectManagerPanel), shown in the viewport via its
+ * icon mesh (EditorOnly - excluded from a final render, since a camera's own
+ * marker obviously shouldn't appear in any render, including one taken
+ * through a *different* camera in the same scene).
+ */
+export function spawnCamera(
+	world: World,
+	options: { translation?: vec3; rotation?: vec3 } = {}
+): Entity {
+	const entity = spawnRenderable(world, {
+		mesh: cameraIconMesh,
+		material: cameraIconMaterial,
+		name: "Camera",
+		transform: createTransform({
+			translation: options.translation,
+			rotation: options.rotation,
+		}),
+	});
+	world.add(entity, CameraComponent, {
+		fov: DEFAULT_CAMERA_FOV,
+		near: DEFAULT_CAMERA_NEAR,
+		far: DEFAULT_CAMERA_FAR,
+	});
+	world.add(entity, EditorOnly, {});
+	return entity;
 }

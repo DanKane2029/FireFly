@@ -5,6 +5,7 @@ import { ObjectManagerPanel } from "./ObjectManagerPanel";
 import { InspectorPanel } from "./InspectorPanel";
 import { WorkspacePanel } from "./WorkspacePanel";
 import { MaterialsPanel } from "./MaterialsPanel";
+import { RenderPanel } from "./RenderPanel";
 
 /**
  * Metadata describing one dockable panel type. `id` is both the dockview
@@ -32,6 +33,7 @@ export const PANEL_TYPES: PanelType[] = [
 	{ id: "inspector", title: "Inspector", component: InspectorPanel },
 	{ id: "workspace", title: "Workspace", component: WorkspacePanel },
 	{ id: "materials", title: "Materials", component: MaterialsPanel },
+	{ id: "render", title: "Render", component: RenderPanel },
 ];
 
 /**

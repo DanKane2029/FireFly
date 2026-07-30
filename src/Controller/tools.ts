@@ -1,16 +1,18 @@
 import SvgIcon from "@mui/material/SvgIcon";
 import NearMeIcon from "@mui/icons-material/NearMe";
 import AddBoxIcon from "@mui/icons-material/AddBox";
+import CameraAltIcon from "@mui/icons-material/CameraAlt";
 import { Controller } from "./Controller";
 import { GizmoController } from "./GizmoController";
 import { AddCubeController } from "./AddCube";
+import { AddCameraController } from "./AddCamera";
 
 /**
  * The swappable "what does the left mouse button do" tools. Distinct from the
  * camera (OrbitalControls), which is always-on and bound to the right mouse
  * button - see App's setTool/_cameraController split.
  */
-type ToolId = "select" | "addCube";
+type ToolId = "select" | "addCube" | "addCamera";
 
 interface ToolBinding {
 	id: ToolId;
@@ -46,6 +48,15 @@ const TOOLS: ToolBinding[] = [
 		description: "Click to add a cube; drag to size it before releasing.",
 		icon: AddBoxIcon,
 		create: () => new AddCubeController(),
+	},
+	{
+		id: "addCamera",
+		label: "Add Camera",
+		key: "v",
+		description:
+			"Click to add a camera, positioned where the viewport is currently looking.",
+		icon: CameraAltIcon,
+		create: () => new AddCameraController(),
 	},
 ];
 

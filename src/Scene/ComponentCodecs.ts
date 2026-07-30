@@ -5,11 +5,18 @@ import {
 	transformFromJSON,
 	transformToJSON,
 } from "../ecs/components/Transform";
-import { Spin, SpinData, spinFromJSON, spinToJSON } from "../ecs/components/Spin";
+import {
+	Spin,
+	SpinData,
+	spinFromJSON,
+	spinToJSON,
+} from "../ecs/components/Spin";
 import { Named, NamedData } from "../ecs/components/Named";
 import { PointLight, PointLightData } from "../ecs/components/PointLight";
 import { MeshRef, MeshRefData } from "../ecs/components/MeshRef";
 import { MaterialRef, MaterialRefData } from "../ecs/components/MaterialRef";
+import { CameraComponent, CameraData } from "../ecs/components/Camera";
+import { EditorOnly, EditorOnlyData } from "../ecs/components/EditorOnly";
 
 /**
  * Pairs a component handle with the functions that turn its data into
@@ -44,21 +51,49 @@ const CODECS: ComponentCodec<unknown>[] = [
 		transformToJSON,
 		transformFromJSON as (json: unknown) => TransformData
 	),
-	codec<SpinData>(Spin, spinToJSON, spinFromJSON as (json: unknown) => SpinData),
+	codec<SpinData>(
+		Spin,
+		spinToJSON,
+		spinFromJSON as (json: unknown) => SpinData
+	),
 	// Named, PointLight, MeshRef, and MaterialRef are already JSON-safe plain
 	// data (a string, nothing, and - since M1 - an AssetId string
 	// respectively), so their codec is the identity function.
-	codec<NamedData>(Named, (data) => data, (json) => json as NamedData),
+	codec<NamedData>(
+		Named,
+		(data) => data,
+		(json) => json as NamedData
+	),
 	codec<PointLightData>(
 		PointLight,
 		(data) => data,
 		(json) => json as PointLightData
 	),
-	codec<MeshRefData>(MeshRef, (data) => data, (json) => json as MeshRefData),
+	codec<MeshRefData>(
+		MeshRef,
+		(data) => data,
+		(json) => json as MeshRefData
+	),
 	codec<MaterialRefData>(
 		MaterialRef,
 		(data) => data,
 		(json) => json as MaterialRefData
+	),
+	// CameraData is plain numbers - already JSON-safe, identity codec.
+	codec<CameraData>(
+		CameraComponent,
+		(data) => data,
+		(json) => json as CameraData
+	),
+	// EditorOnly must round-trip (a camera entity's icon should still be
+	// excluded from a final render after a save/load) even though it's a
+	// tag with nothing to store - Transient, by contrast, has deliberately
+	// no codec: entities tagged Transient never reach a saved file in the
+	// first place (see serializeScene.ts), so there's nothing to persist.
+	codec<EditorOnlyData>(
+		EditorOnly,
+		(data) => data,
+		(json) => json as EditorOnlyData
 	),
 ];
 
