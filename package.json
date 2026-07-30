@@ -9,7 +9,8 @@
 		"build": "npm run format && webpack --mode production",
 		"start:dev": "npm run format && webpack-dev-server --mode development",
 		"start": "npm run format && webpack serve --mode production",
-		"test": "jest"
+		"test": "jest",
+		"screenshots": "node scripts/screenshots.mjs"
 	},
 	"author": "Dan Kane",
 	"license": "MIT",
