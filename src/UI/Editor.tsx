@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { Box } from "@mui/material";
 import { DockviewReact } from "dockview-react";
 import {
@@ -69,8 +69,6 @@ function loadSavedLayout(): SerializedDockview | null {
  */
 export function Editor() {
 	const [api, setApi] = useState<DockviewApi | null>(null);
-	// Monotonic counter so repeatedly-added panels get unique ids.
-	const nextInstance = useRef(0);
 
 	const onReady = (event: DockviewReadyEvent) => {
 		setApi(event.api);
@@ -124,9 +122,17 @@ export function Editor() {
 			return;
 		}
 
-		nextInstance.current += 1;
+		// Find the lowest free "<id>-N" suffix by checking dockview's actual
+		// current state, not a separately-tracked counter - a counter reset to
+		// 0 on every mount would collide with instances a restored layout
+		// already has open (e.g. "materials-1" surviving a reload), throwing
+		// on the very next add of that panel type.
+		let instance = 1;
+		while (api.getPanel(`${type.id}-${instance}`)) {
+			instance += 1;
+		}
 		api.addPanel({
-			id: `${type.id}-${nextInstance.current}`,
+			id: `${type.id}-${instance}`,
 			component: type.id,
 			title: type.title,
 		});

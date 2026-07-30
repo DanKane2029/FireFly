@@ -181,8 +181,9 @@ class App {
 		this._camera.translation = [0, 0, 2];
 		this._camera.lookAt([0, 0, 0]);
 
-		// Start on the snowman scene; press 2 / 3 to switch to the bunny / dragon.
-		// loadScene spawns the lights along with the scene's entities.
+		// Start on the snowman scene as a default starting document; File > Open
+		// loads a real one. loadScene spawns the lights along with the scene's
+		// entities.
 		this.loadScene("snowman");
 	}
 
@@ -570,7 +571,7 @@ class App {
 
 	/**
 	 * Binds the keyboard shortcuts to the attached canvas (which must be focused).
-	 * Three groups of keys:
+	 * Two groups of keys:
 	 *
 	 * Tools (what the left mouse button does - see Controller/tools.ts for the
 	 * source of truth; the ScenePanel's toolbar reads the same list):
@@ -587,11 +588,6 @@ class App {
 	 *
 	 * The camera (orbit: right-button drag, zoom: scroll) is always on and has
 	 * no key of its own - see `bindInputHandlers`.
-	 *
-	 * Scenes (what is being rendered):
-	 *   1 - Snowman (procedural spheres)
-	 *   2 - Stanford Bunny (loaded OBJ)
-	 *   3 - Stanford Dragon (loaded OBJ)
 	 */
 	private bindKeyboard(): void {
 		const canvas = this._canvasElement;
@@ -610,20 +606,7 @@ class App {
 				const mode = gizmoModeForKey(event.key);
 				if (mode) {
 					this.setGizmoMode(mode.id);
-					return;
 				}
-			}
-
-			switch (event.key) {
-				case "1":
-					this.loadScene("snowman");
-					break;
-				case "2":
-					this.loadScene("bunny");
-					break;
-				case "3":
-					this.loadScene("dragon");
-					break;
 			}
 		};
 		canvas.addEventListener("keydown", this._keydownHandler);
