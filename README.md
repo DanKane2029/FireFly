@@ -7,22 +7,20 @@ the entity system, the loaders, and the editor are all hand-rolled. That is the
 point of the project: it exists to be *read*, by people learning graphics
 programming and by people evaluating whether I can write this kind of code.
 
-<!--
-  SCREENSHOT SLOT — add one before sharing this repo widely.
-  Run `npm run start:dev`, load a scene, and capture the editor with the Scene,
-  Objects, and Inspector panels visible, then uncomment:
-
-  ![The Firefly editor: a dragon mesh selected in the viewport with the
-  translate gizmo active, the Objects panel listing scene entities, and the
-  Inspector showing its transform](docs/screenshots/editor.png)
--->
+![The Firefly editor: a snowman in the viewport with its head selected, drawn
+with a yellow selection outline and the translate gizmo's three axis handles;
+the Objects panel lists the scene's nine named entities on the left, and the
+Inspector shows the selection's transform and material colour on the
+right](docs/screenshots/editor.png)
 
 ## What it does
 
 **Editing.** Click to select an object; drag the gizmo's axis handles to move,
 rotate, or scale it. Selection is drawn with a yellow silhouette rim. Panels are
-dockable and rearrangeable — Scene, Objects, Inspector, Materials, and Workspace
-— and the layout persists across reloads.
+dockable and rearrangeable — Scene, Objects, Inspector, Materials, Workspace,
+and Render — and the layout persists across reloads. Pressing `w`, `e`, or `r`
+swaps the gizmo between translate, rotate, and scale without changing the
+selection.
 
 **Assets.** Imports `.obj` and glTF 2.0 `.glb` models, both with hand-written
 parsers. Materials are shared, reusable assets rather than per-object copies.
@@ -33,6 +31,9 @@ are read from and written to, with a recent-workspaces list.
 
 **Rendering.** Point lighting with textures, drawn into an offscreen framebuffer
 with two color attachments — which is what makes picking nearly free, see below.
+Cameras are ordinary entities, so you can place one in the scene, move it with
+the same gizmo as anything else, and render the view through it in the Render
+panel.
 
 ## Running it
 
@@ -40,7 +41,7 @@ with two color attachments — which is what makes picking nearly free, see belo
 npm install
 npm run start:dev   # dev server on :8080
 npm run build       # production build
-npm test            # 150 tests, no GL context required
+npm test            # 151 tests, no GL context required
 npx tsc --noEmit    # typecheck; strict is on
 ```
 
@@ -54,6 +55,23 @@ filesystem and the app adapts rather than breaking (see
 | **Camera** | right-drag to orbit · scroll to zoom |
 | **Tools** | `s` select/move · `c` add cube |
 | **Gizmo** | `w` translate · `e` rotate · `r` scale |
+
+### Screenshots
+
+The image above is captured from the running editor rather than hand-made, so it
+can't drift into showing something the app doesn't do. Playwright isn't a
+project dependency — it's only needed to refresh it:
+
+```bash
+npm i --no-save playwright-core
+npm run start:dev                 # in one terminal
+npm run screenshots               # in another; writes docs/screenshots/
+```
+
+Headless Chromium only has a WebGL2 context via SwiftShader, so
+[`scripts/screenshots.mjs`](scripts/screenshots.mjs) launches it with the
+matching ANGLE flags and waits for the software rasterizer to land a few frames
+before the shutter. Set `BASE_URL` if your dev server isn't on `:8080`.
 
 ## How it fits together
 
@@ -124,7 +142,7 @@ the platform can do, so it gets stated explicitly instead of papered over.
 
 ## Tests
 
-150 tests across 14 suites, all runnable without a GPU:
+151 tests across 14 suites, all runnable without a GPU:
 
 ```bash
 npm test
@@ -146,17 +164,17 @@ garbage from a malformed file is worse than one that throws.
 ## Status
 
 Working today: the editor, the gizmo in all three modes, GPU picking, selection
-outlines, `.obj` and `.glb` import, materials as shared assets, scene save/load,
-and workspace folders with persisted panel layout.
+outlines, `.obj` and `.glb` import, materials as shared assets, camera entities
+with a Render panel to shoot through them, scene save/load, and workspace
+folders with persisted panel layout.
 
-Deliberately not done: no shadows, no PBR, no animation import, one camera only,
-and ECS storage is a plain `Map` per component rather than packed archetype
-arrays. That last one is a real performance ceiling and still the right call —
-archetype storage would triple the size of `World.ts` to speed up scenes
-containing a dozen objects.
+Deliberately not done: no shadows, no PBR, no animation import, and ECS storage
+is a plain `Map` per component rather than packed archetype arrays. That last
+one is a real performance ceiling and still the right call — archetype storage
+would triple the size of `World.ts` to speed up scenes containing a dozen
+objects.
 
-In progress: a scene-creator roadmap adding prefab authoring and a final-render
-panel.
+In progress: a scene-creator roadmap adding prefab authoring.
 
 ## License
 
