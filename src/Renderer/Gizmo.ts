@@ -25,7 +25,7 @@ import {
  * every frame outside the ECS. That's what lets them draw depth-tested
  * through the normal render pass (occludable by real geometry) instead of a
  * special always-on-top pass, and what lets GizmoController resolve a
- * Picker hit back to an axis via a component lookup instead of a reserved-id
+ * pick hit back to an axis via a component lookup instead of a reserved-id
  * scheme.
  *
  * Pulls in prefabs.ts for the shared lit shader program, which makes this

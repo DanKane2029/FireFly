@@ -5,10 +5,15 @@ import { App } from "../App/App";
  * interacts with the application.
  *
  * Every handler receives the whole App so it can reach whatever it needs -
- * the world (app.world), the camera (app.camera), the renderer (app.renderer),
- * or the picker (app.picker) - rather than each handler being handed a
- * different, narrower object. All handlers are optional; a controller
+ * the world (app.world), the camera (app.camera), the render backend
+ * (app.backend), or picking (app.pick) - rather than each handler being handed
+ * a different, narrower object. All handlers are optional; a controller
  * implements only the events it cares about.
+ *
+ * A handler may be `async` (GizmoController.onMouseDown is, since picking is):
+ * the declared `void` return simply ignores the promise. Nothing awaits a
+ * handler, so an async one must not assume the world is unchanged after it
+ * resumes.
  */
 interface Controller {
 	onClick?: (app: App, event: MouseEvent) => void;

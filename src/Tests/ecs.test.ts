@@ -7,7 +7,7 @@ import { Spin } from "../ecs/components/Spin";
 import { PointLight } from "../ecs/components/PointLight";
 import { animationSystem } from "../ecs/systems/AnimationSystem";
 import { renderSystem } from "../ecs/systems/RenderSystem";
-import { Renderer } from "../Renderer/Renderer";
+import { RenderBackend } from "../Renderer/RenderBackend";
 import { Camera } from "../Renderer/Camera";
 
 interface Position {
@@ -143,25 +143,26 @@ describe("AnimationSystem", () => {
 
 describe("RenderSystem lighting", () => {
 	/**
-	 * The RenderSystem only ever calls `render` on the Renderer, so a stub that
-	 * records the arguments is enough to test what the system gathers - no GL
-	 * context needed.
+	 * The RenderSystem only ever calls `render` on the backend, so a stub that
+	 * records the arguments is enough to test what the system gathers - no GPU
+	 * context needed, and it works the same whichever backend would really be
+	 * in that slot.
 	 */
-	function stubRenderer() {
+	function stubBackend() {
 		const calls: { renderables: unknown[]; lightPositions: vec3[] }[] = [];
-		const renderer = {
+		const backend = {
 			render: (
 				renderables: unknown[],
 				_camera: Camera,
 				_ambient: vec3,
 				lightPositions: vec3[]
 			) => calls.push({ renderables, lightPositions }),
-		} as unknown as Renderer;
-		return { renderer, calls };
+		} as unknown as RenderBackend;
+		return { backend, calls };
 	}
 
-	const context = (renderer: Renderer) => ({
-		renderer,
+	const context = (backend: RenderBackend) => ({
+		backend,
 		camera: new Camera(1, 45, 0.01, 1000),
 		ambientLight: vec3.fromValues(0.1, 0.1, 0.1),
 	});
@@ -172,8 +173,8 @@ describe("RenderSystem lighting", () => {
 		world.add(light, Transform, createTransform({ translation: [5, 0, 10] }));
 		world.add(light, PointLight, {});
 
-		const { renderer, calls } = stubRenderer();
-		renderSystem(world, context(renderer));
+		const { backend, calls } = stubBackend();
+		renderSystem(world, context(backend));
 
 		// Compare contents, not container: a Transform holds whatever vec3-ish
 		// array it was given (a plain array here), which the GL uniform setter
@@ -188,8 +189,8 @@ describe("RenderSystem lighting", () => {
 		world.add(light, Transform, createTransform({ translation: [1, 2, 3] }));
 		world.add(light, PointLight, {});
 
-		const { renderer, calls } = stubRenderer();
-		renderSystem(world, context(renderer));
+		const { backend, calls } = stubBackend();
+		renderSystem(world, context(backend));
 
 		expect(calls[0].lightPositions).toHaveLength(1);
 		expect(calls[0].renderables).toHaveLength(0);
@@ -200,8 +201,8 @@ describe("RenderSystem lighting", () => {
 		const notALight = world.create();
 		world.add(notALight, Transform, createTransform({ translation: [9, 9, 9] }));
 
-		const { renderer, calls } = stubRenderer();
-		renderSystem(world, context(renderer));
+		const { backend, calls } = stubBackend();
+		renderSystem(world, context(backend));
 
 		expect(calls[0].lightPositions).toHaveLength(0);
 	});
@@ -212,12 +213,12 @@ describe("RenderSystem lighting", () => {
 		world.add(light, Transform, createTransform({ translation: [5, 0, 10] }));
 		world.add(light, PointLight, {});
 
-		const { renderer, calls } = stubRenderer();
-		renderSystem(world, context(renderer));
+		const { backend, calls } = stubBackend();
+		renderSystem(world, context(backend));
 		expect(calls[0].lightPositions).toHaveLength(1);
 
 		world.destroy(light);
-		renderSystem(world, context(renderer));
+		renderSystem(world, context(backend));
 		expect(calls[1].lightPositions).toHaveLength(0);
 	});
 });

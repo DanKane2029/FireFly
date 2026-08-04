@@ -1,6 +1,6 @@
 import { mat4, vec3 } from "gl-matrix";
 import { World } from "../World";
-import { Renderer, Renderable } from "../../Renderer/Renderer";
+import { RenderBackend, Renderable } from "../../Renderer/RenderBackend";
 import { Camera } from "../../Renderer/Camera";
 import { Transform, transformMatrix } from "../components/Transform";
 import { MeshRef } from "../components/MeshRef";
@@ -16,7 +16,7 @@ import { assetRegistry } from "../../Assets/AssetRegistry";
  * (The camera stays a plain resource: there is exactly one of it.)
  */
 export interface RenderContext {
-	renderer: Renderer;
+	backend: RenderBackend;
 	camera: Camera;
 	ambientLight: vec3;
 	/** The selection outline's Renderable (see Outline.ts), if anything is
@@ -81,7 +81,7 @@ export function renderSystem(world: World, context: RenderContext): void {
 	const renderables = gatherRenderables(world, { excludeEditorOnly: false });
 	const lightPositions = gatherLightPositions(world);
 
-	context.renderer.render(
+	context.backend.render(
 		renderables,
 		context.camera,
 		context.ambientLight,

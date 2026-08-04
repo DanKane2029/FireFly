@@ -22,7 +22,10 @@ f 3 7 8 4
 f 4 8 5 1
 `;
 
-const STRIDE = 6; // a_position (3) + a_normal (3)
+// a_position (3) + a_normal (3) + a_texCoord (2). OBJ's `vt` coordinates are
+// ignored, but the standard layout carries the slot anyway (zeroed) - see
+// standardVertexLayout in Renderer/Buffer.ts.
+const STRIDE = 8;
 
 describe("parseOBJ", () => {
 	const mesh = parseOBJ(CUBE_OBJ);

@@ -9,54 +9,39 @@ enum ShaderType {
 /**
  * A single GPU shader stage - either a vertex shader (runs per vertex, decides
  * where each vertex lands on screen) or a fragment shader (runs per pixel,
- * decides its color). Holds the GLSL source and, once compiled, the WebGL
- * handle. The `created` flag guards against compiling the same source twice.
+ * decides its color), as GLSL source.
+ *
+ * Holds no compiled handle: a backend compiles this source and caches the
+ * result against this object (see webgl/GLResourceCache.ts), so the same
+ * Shader can be compiled by more than one backend.
  */
 class Shader {
-	private _source: string;
-	// Assigned by the Renderer when the shader is compiled on the GPU.
-	private _shader!: WebGLShader;
+	private _glsl: string;
 	private _type: ShaderType;
-	private _created: boolean;
 
 	/**
 	 * Creates a new Shader program object
 	 *
-	 * @param source - The source code of the shader program as a string
+	 * @param glsl - The GLSL source code of the shader stage as a string
 	 * @param type - The shader program type
 	 */
-	constructor(source: string, type: ShaderType) {
-		this._source = source;
+	constructor(glsl: string, type: ShaderType) {
+		this._glsl = glsl;
 		this._type = type;
-		this._created = false;
 	}
 
 	/**
-	 * Get the source code of the program as a string
+	 * Get the GLSL source code of the stage as a string
 	 */
-	get source(): string {
-		return this._source;
+	get glsl(): string {
+		return this._glsl;
 	}
 
 	/**
-	 * Sets the source code of the program as a string
+	 * Sets the GLSL source code of the stage as a string
 	 */
-	set source(source: string) {
-		this._source = source;
-	}
-
-	/**
-	 * Get the WebGLShader object
-	 */
-	get shader(): WebGLShader {
-		return this._shader;
-	}
-
-	/**
-	 * Sets the WebGLShader object
-	 */
-	set shader(shader: WebGLShader) {
-		this._shader = shader;
+	set glsl(glsl: string) {
+		this._glsl = glsl;
 	}
 
 	/**
@@ -74,66 +59,54 @@ class Shader {
 	}
 
 	/**
-	 * Gets the created boolean
-	 */
-	get created(): boolean {
-		return this._created;
-	}
-
-	/**
-	 * Sets the created boolean
-	 */
-	set created(created: boolean) {
-		this._created = created;
-	}
-
-	/**
 	 * Clones the shader object
 	 *
 	 * @returns - The cloned shader object
 	 */
 	clone(): Shader {
-		const clonedShader: Shader = new Shader(this.source, this.type);
+		const clonedShader: Shader = new Shader(this.glsl, this.type);
 		return clonedShader;
 	}
 }
 
 /**
- * A linked vertex + fragment shader pair - the complete GPU program used to
- * draw a surface. The vertex stage feeds its outputs into the fragment stage,
- * so the two are compiled and linked together into one WebGL program.
+ * A complete GPU program for drawing a surface, in both shader languages.
+ *
+ * The two APIs package a program differently, and this class carries both
+ * shapes rather than pretending they are the same:
+ *
+ * - **GLSL** (WebGL) compiles a vertex stage and a fragment stage separately
+ *   and links the pair - hence `vertexShader` + `fragmentShader`.
+ * - **WGSL** (WebGPU) puts every stage in one module with named entry points,
+ *   so it is a single `wgsl` string with `vs_main`/`fs_main` inside it.
+ *
+ * The two sources are hand-written twins that must stay semantically in step;
+ * see src/Shaders/ for the pairs. Neither is generated from the other - a
+ * transpiler was rejected as a heavy build dependency whose output nobody
+ * could read, in a repo whose whole point is being readable.
  */
 class ShaderProgram {
-	// Assigned by the Renderer when the program is linked on the GPU.
-	private _program!: WebGLProgram;
 	private _vertexShader: Shader;
 	private _fragmentShader: Shader;
-	private _created: boolean;
+	private _wgsl: string | undefined;
 
 	/**
 	 * Creates a new shader program
 	 *
-	 * @param vertexShader - A shader program that defines the position of the scene object's vertices
-	 * @param fragmentShader - A shader program that defines the pixel colors of a rendered scene object
+	 * @param vertexShader - A GLSL shader stage that defines the position of the scene object's vertices
+	 * @param fragmentShader - A GLSL shader stage that defines the pixel colors of a rendered scene object
+	 * @param wgsl - The WGSL twin of the same program, with `vs_main` and
+	 * `fs_main` entry points. Optional: a program without one simply cannot be
+	 * drawn by the WebGPU backend, which reports that rather than guessing.
 	 */
-	constructor(vertexShader: Shader, fragmentShader: Shader) {
+	constructor(
+		vertexShader: Shader,
+		fragmentShader: Shader,
+		wgsl?: string
+	) {
 		this._vertexShader = vertexShader;
 		this._fragmentShader = fragmentShader;
-		this._created = false;
-	}
-
-	/**
-	 * Gets the WebGLProgram object
-	 */
-	get program(): WebGLProgram {
-		return this._program;
-	}
-
-	/**
-	 * Sets the WebGLProgram object
-	 */
-	set program(program: WebGLProgram) {
-		this._program = program;
+		this._wgsl = wgsl;
 	}
 
 	/**
@@ -165,21 +138,21 @@ class ShaderProgram {
 	}
 
 	/**
-	 * Gets the created boolean
+	 * Gets the WGSL source of the program, or undefined if it has no WGSL twin.
 	 */
-	get created(): boolean {
-		return this._created;
+	get wgsl(): string | undefined {
+		return this._wgsl;
 	}
 
 	/**
-	 * Sets the created boolean
+	 * Sets the WGSL source of the program.
 	 */
-	set created(created: boolean) {
-		this._created = created;
+	set wgsl(wgsl: string | undefined) {
+		this._wgsl = wgsl;
 	}
 
 	/**
-	 * Clones a shader program object
+	 * Returns a clone of a shader program object
 	 *
 	 * @returns - The cloned shader program
 	 */
@@ -188,7 +161,8 @@ class ShaderProgram {
 		const clonedFragmentShader: Shader = this.fragmentShader.clone();
 		const clonedShaderProgram: ShaderProgram = new ShaderProgram(
 			clonedVertexShader,
-			clonedFragmentShader
+			clonedFragmentShader,
+			this.wgsl
 		);
 		return clonedShaderProgram;
 	}

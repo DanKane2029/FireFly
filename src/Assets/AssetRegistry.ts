@@ -6,7 +6,7 @@ import {
 } from "../Renderer/Material";
 import { ShaderProgram } from "../Renderer/Shader";
 import { Texture } from "../Renderer/Texture";
-import { Renderer } from "../Renderer/Renderer";
+import { RenderBackend } from "../Renderer/RenderBackend";
 import { AssetId } from "./AssetId";
 
 /**
@@ -99,19 +99,19 @@ class AssetRegistry {
 	 * meaningful for a mesh nothing else references - never call this on a
 	 * shared built-in mesh while another entity still uses it.
 	 *
-	 * @param renderer - The renderer to free GPU resources through, or
+	 * @param backend - The render backend to free GPU resources through, or
 	 * undefined if no canvas is attached (nothing was ever uploaded, so this
 	 * just drops the registry entry)
 	 * @param id - The mesh to dispose
 	 */
-	disposeMesh(renderer: Renderer | undefined, id: AssetId): void {
+	disposeMesh(backend: RenderBackend | undefined, id: AssetId): void {
 		const entry = this._meshes.get(id);
 		if (!entry) {
 			return;
 		}
-		if (renderer) {
-			renderer.deleteVertexBuffer(entry.live.vertexBuffer);
-			renderer.deleteIndexBuffer(entry.live.indexBuffer);
+		if (backend) {
+			backend.deleteVertexBuffer(entry.live.vertexBuffer);
+			backend.deleteIndexBuffer(entry.live.indexBuffer);
 		}
 		this._meshes.delete(id);
 	}
@@ -274,20 +274,20 @@ class AssetRegistry {
 	 * texture property (currently unused - see the roadmap's texturing
 	 * milestone) is uniquely owned by a material and needs a GPU delete.
 	 *
-	 * @param renderer - The renderer to free GPU resources through, or
+	 * @param backend - The render backend to free GPU resources through, or
 	 * undefined if no canvas is attached (nothing was ever uploaded, so this
 	 * just drops the registry entry)
 	 * @param id - The material to dispose
 	 */
-	disposeMaterial(renderer: Renderer | undefined, id: AssetId): void {
+	disposeMaterial(backend: RenderBackend | undefined, id: AssetId): void {
 		const entry = this._materials.get(id);
 		if (!entry) {
 			return;
 		}
-		if (renderer) {
+		if (backend) {
 			entry.live.properties.forEach((property: MaterialProperty) => {
 				if (property.type === MaterialPropertyType.TEXTURE) {
-					renderer.deleteTexture(property.value as Texture);
+					backend.deleteTexture(property.value as Texture);
 				}
 			});
 		}

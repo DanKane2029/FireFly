@@ -141,18 +141,25 @@ function CameraLegend() {
 }
 
 /**
- * The panel that displays the 3D scene - the WebGL view that used to be the
- * whole app. It owns a `<canvas>`, hands it to the App (which builds the
- * Renderer/Picker and wires mouse + keyboard input), drives the render loop, and
- * keeps the canvas and framebuffer sized to the panel with a ResizeObserver.
+ * The panel that displays the 3D scene - the 3D view that used to be the whole
+ * app. It owns a `<canvas>`, hands it to the App (which builds the render
+ * backend and wires mouse + keyboard input), drives the render loop, and keeps
+ * the canvas and its attachments sized to the panel with a ResizeObserver.
  *
- * The App/Scene outlive this component, so the world survives the panel being
+ * The App/world outlive this component, so the world survives the panel being
  * resized, re-docked, or closed and reopened.
  */
 export function ScenePanel() {
 	const app = useApp();
+	useEditorStore();
 	const containerRef = useRef<HTMLDivElement>(null);
 	const canvasRef = useRef<HTMLCanvasElement>(null);
+	// A canvas's context type is permanent: once it has handed out a WebGL2
+	// context it can never give a WebGPU one, and vice versa. Keying the
+	// element on the chosen backend makes React discard the old canvas and
+	// mount a brand new one when the user switches - which is the only way a
+	// switch can work at all. See Renderer/createBackend.ts.
+	const preference = app.backendPreference;
 
 	useEffect(() => {
 		const container = containerRef.current;
@@ -161,13 +168,18 @@ export function ScenePanel() {
 			return;
 		}
 
-		// Size the canvas to the panel before attaching so the framebuffer is
-		// allocated at the right resolution; the ResizeObserver keeps it current.
+		// Size the canvas to the panel before attaching so the render surfaces
+		// are allocated at the right resolution; the ResizeObserver keeps them
+		// current.
 		const rect = container.getBoundingClientRect();
 		canvas.width = Math.max(1, Math.floor(rect.width));
 		canvas.height = Math.max(1, Math.floor(rect.height));
 
-		app.attachCanvas(canvas);
+		// Attaching is async (acquiring a WebGPU device is), and this effect
+		// can be torn down before it finishes. App.attachCanvas notices that
+		// on its own - detachCanvas below clears the canvas it checks against
+		// - so nothing here has to await it.
+		void app.attachCanvas(canvas);
 
 		let frame = requestAnimationFrame(function loop() {
 			app.render();
@@ -185,7 +197,7 @@ export function ScenePanel() {
 			observer.disconnect();
 			app.detachCanvas();
 		};
-	}, [app]);
+	}, [app, preference]);
 
 	return (
 		<div
@@ -198,6 +210,7 @@ export function ScenePanel() {
 			}}
 		>
 			<canvas
+				key={preference}
 				ref={canvasRef}
 				tabIndex={0}
 				style={{

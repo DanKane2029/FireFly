@@ -3,7 +3,7 @@ import { vec2, vec3 } from "gl-matrix";
 
 import { Mesh } from "./Mesh";
 import { Vertex } from "./Vertex";
-import { VertexBufferLayout, VertexTypes } from "../Renderer/Buffer";
+import { standardVertexLayout } from "../Renderer/Buffer";
 
 /**
  * A rectangular cuboid parameterized by a width, depth, and height dimension
@@ -40,26 +40,7 @@ class Box extends ParameterizedGeometry {
 		const halfHeight: number = this._height / 2;
 		const halfDepth: number = this._depth / 2;
 
-		const vertexBufferLayout = new VertexBufferLayout([
-			{
-				name: "a_position",
-				size: 3,
-				type: VertexTypes.FLOAT,
-				normalized: false,
-			},
-			{
-				name: "a_normal",
-				size: 3,
-				type: VertexTypes.FLOAT,
-				normalized: true,
-			},
-			{
-				name: "a_texCoord",
-				size: 2,
-				type: VertexTypes.FLOAT,
-				normalized: false,
-			},
-		]);
+		const vertexBufferLayout = standardVertexLayout();
 
 		// Each face's 4 vertices are listed in the same relative winding (see
 		// the indicesList triangle pattern below: [a,b,c],[a,c,d]), so mapping

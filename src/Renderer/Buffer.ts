@@ -3,22 +3,16 @@
  * flat Float32Array, ready to upload to the GPU. The data is *interleaved* -
  * one vertex's attributes sit together in memory - and the accompanying
  * VertexBufferLayout describes how to slice each vertex back into attributes.
- * The `created` flag tracks whether the data has been uploaded to a WebGL
- * buffer yet, so the renderer only uploads it once.
+ *
+ * This is pure CPU-side data: it holds no GPU handle and does not know whether
+ * it has been uploaded. Each backend keeps that in its own cache, keyed by this
+ * object (see webgl/GLResourceCache.ts), which is what allows the same mesh to
+ * be drawn through WebGL and WebGPU without the two fighting over one handle
+ * field.
  */
 class VertexBuffer {
 	private _vertices: Float32Array;
-	// Assigned by the Renderer when the buffer is uploaded to the GPU.
-	private _buffer!: WebGLBuffer;
 	private _layout: VertexBufferLayout;
-	private _created: boolean;
-	// Assigned by the Renderer the first time this buffer is drawn. Captures
-	// this buffer's attribute pointers/enables and the paired index buffer's
-	// binding, so a draw is just "bind this VAO" instead of re-issuing
-	// vertexAttribPointer/enableVertexAttribArray every frame - see
-	// Renderer.createVertexArray.
-	private _vao!: WebGLVertexArrayObject;
-	private _vaoCreated: boolean;
 
 	/**
 	 * Creates a Vertex Buffer
@@ -29,8 +23,6 @@ class VertexBuffer {
 	constructor(vertices: Float32Array, layout: VertexBufferLayout) {
 		this._vertices = vertices;
 		this._layout = layout;
-		this._created = false;
-		this._vaoCreated = false;
 	}
 
 	/**
@@ -48,20 +40,6 @@ class VertexBuffer {
 	}
 
 	/**
-	 * Gets the WebGL Buffer
-	 */
-	get buffer(): WebGLBuffer {
-		return this._buffer;
-	}
-
-	/**
-	 * Sets the WebGL Buffer
-	 */
-	set buffer(buffer: WebGLBuffer) {
-		this._buffer = buffer;
-	}
-
-	/**
 	 * Gets the buffer layout that describes this vertex buffer's layout
 	 */
 	get layout(): VertexBufferLayout {
@@ -74,62 +52,19 @@ class VertexBuffer {
 	set layout(layout: VertexBufferLayout) {
 		this._layout = layout;
 	}
-
-	/**
-	 * Returns true if the buffer has been created already in the WebGL context
-	 */
-	get created(): boolean {
-		return this._created;
-	}
-
-	/**
-	 * Sets the created value
-	 */
-	set created(created: boolean) {
-		this._created = created;
-	}
-
-	/**
-	 * Gets the WebGL vertex array object that captures this buffer's attribute
-	 * setup (and the paired index buffer's binding).
-	 */
-	get vao(): WebGLVertexArrayObject {
-		return this._vao;
-	}
-
-	/**
-	 * Sets the WebGL vertex array object
-	 */
-	set vao(vao: WebGLVertexArrayObject) {
-		this._vao = vao;
-	}
-
-	/**
-	 * Returns true if the vertex array object has been created already
-	 */
-	get vaoCreated(): boolean {
-		return this._vaoCreated;
-	}
-
-	/**
-	 * Sets the vaoCreated value
-	 */
-	set vaoCreated(vaoCreated: boolean) {
-		this._vaoCreated = vaoCreated;
-	}
 }
 
 /**
  * Holds the face indices for a mesh: triples of indices into the VertexBuffer,
  * each triple describing one triangle. Indexing lets vertices shared by
  * several triangles be stored once instead of repeated per triangle.
+ *
+ * Like VertexBuffer, this is CPU-side data only - see that class's note on why
+ * the GPU handle lives in the backend's cache instead.
  */
 class IndexBuffer {
 	private _indices: Uint32Array;
-	// Assigned by the Renderer when the buffer is uploaded to the GPU.
-	private _buffer!: WebGLBuffer;
 	private _length: number;
-	private _created: boolean;
 
 	/**
 	 * Creates an index buffer object
@@ -139,7 +74,6 @@ class IndexBuffer {
 	constructor(indices: Uint32Array) {
 		this._indices = indices;
 		this._length = indices.length;
-		this._created = false;
 	}
 
 	/**
@@ -158,38 +92,10 @@ class IndexBuffer {
 	}
 
 	/**
-	 * Gets the WebGL Buffer
-	 */
-	get buffer(): WebGLBuffer {
-		return this._buffer;
-	}
-
-	/**
-	 * Sets the WebGL Buffer
-	 */
-	set buffer(buffer: WebGLBuffer) {
-		this._buffer = buffer;
-	}
-
-	/**
 	 * Gets the number of indices in the buffer
 	 */
 	get length(): number {
 		return this._length;
-	}
-
-	/**
-	 * Returns true if the buffer has been created already in the WebGL context
-	 */
-	get created(): boolean {
-		return this._created;
-	}
-
-	/**
-	 * Sets the created value
-	 */
-	set created(created: boolean) {
-		this._created = created;
 	}
 }
 
@@ -213,8 +119,9 @@ interface VertexLayout {
 /**
  * Describes how the flat float array in a VertexBuffer is divided into named
  * attributes: for each attribute, its shader name, how many floats it spans,
- * its type, and whether it should be normalized. The renderer uses this to
- * wire the buffer up to the matching shader inputs (see setVertexAttributes).
+ * its type, and whether it should be normalized. A backend uses this to wire
+ * the buffer up to the matching shader inputs - resolving each name to a slot
+ * through attributeLocations.ts, which both shader languages agree on.
  */
 class VertexBufferLayout {
 	private _layout: VertexLayout[];
@@ -236,10 +143,50 @@ class VertexBufferLayout {
 	}
 }
 
+/**
+ * The vertex layout every mesh in Firefly uses: position, normal, texture
+ * coordinate, interleaved in that order.
+ *
+ * Meshes used to declare their own layouts, and one that had no UVs simply
+ * left `a_texCoord` out. WebGL tolerates that - an unfed attribute reads
+ * (0,0,0,1) and the shader carries on - but **WebGPU rejects it**: a pipeline
+ * must supply every attribute location its shader declares, or creating it
+ * fails validation. Rather than compile a shader variant per layout, every
+ * mesh now carries all three attributes, and a mesh with no real UVs stores
+ * zeroes - exactly the value WebGL was inventing for it anyway.
+ *
+ * Returns a fresh instance per call rather than one shared constant, since a
+ * VertexBufferLayout is mutable and each mesh holds on to the one it was
+ * built with.
+ */
+function standardVertexLayout(): VertexBufferLayout {
+	return new VertexBufferLayout([
+		{
+			name: "a_position",
+			size: 3,
+			type: VertexTypes.FLOAT,
+			normalized: false,
+		},
+		{
+			name: "a_normal",
+			size: 3,
+			type: VertexTypes.FLOAT,
+			normalized: true,
+		},
+		{
+			name: "a_texCoord",
+			size: 2,
+			type: VertexTypes.FLOAT,
+			normalized: false,
+		},
+	]);
+}
+
 export {
 	VertexBuffer,
 	IndexBuffer,
 	VertexBufferLayout,
 	VertexLayout,
 	VertexTypes,
+	standardVertexLayout,
 };

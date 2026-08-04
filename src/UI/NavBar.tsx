@@ -11,8 +11,88 @@ import {
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import { PANEL_TYPES, PanelType } from "./panels/registry";
-import { useApp } from "./EngineContext";
+import { useApp, useEditorStore } from "./EngineContext";
 import { RecentWorkspaceEntry } from "../platform/Storage";
+import { BackendPreference, isWebGPUAvailable } from "../Renderer/createBackend";
+
+/** How each backend choice is labelled in the Renderer menu. */
+const BACKEND_LABELS: Record<BackendPreference, string> = {
+	auto: "Automatic",
+	webgpu: "WebGPU",
+	webgl2: "WebGL 2",
+};
+
+/**
+ * Picks which graphics API the Scene panel renders through.
+ *
+ * Switching remounts the Scene panel's canvas rather than reconfiguring the
+ * existing one, because a canvas's context type is permanent - see
+ * Renderer/createBackend.ts. That is also why the label shows the API actually
+ * in use next to the preference: asking for WebGPU on a browser without it
+ * lands on WebGL 2, and the menu should admit that instead of showing a
+ * checkmark next to something that isn't running.
+ */
+function RendererMenu() {
+	const app = useApp();
+	useEditorStore();
+	const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+
+	const webgpuAvailable = isWebGPUAvailable();
+	const active = app.backendKind;
+	const activeLabel =
+		active === undefined
+			? "not attached"
+			: active === "webgpu"
+			? "WebGPU"
+			: "WebGL 2";
+
+	const choose = (preference: BackendPreference) => {
+		setAnchor(null);
+		app.setBackendPreference(preference);
+	};
+
+	return (
+		<>
+			<Button
+				size="small"
+				onClick={(event: MouseEvent<HTMLElement>) =>
+					setAnchor(event.currentTarget)
+				}
+				sx={{ color: "text.primary" }}
+			>
+				{`Renderer: ${activeLabel}`}
+			</Button>
+			<Menu
+				anchorEl={anchor}
+				open={Boolean(anchor)}
+				onClose={() => setAnchor(null)}
+			>
+				{(["auto", "webgpu", "webgl2"] as BackendPreference[]).map(
+					(preference) => (
+						<MenuItem
+							key={preference}
+							selected={preference === app.backendPreference}
+							disabled={
+								preference === "webgpu" && !webgpuAvailable
+							}
+							onClick={() => choose(preference)}
+						>
+							{BACKEND_LABELS[preference]}
+							{preference === "webgpu" && !webgpuAvailable
+								? " (unavailable)"
+								: ""}
+						</MenuItem>
+					)
+				)}
+				{app.backendFellBack && (
+					<MenuItem disabled>
+						WebGPU unavailable — using WebGL 2
+					</MenuItem>
+				)}
+			</Menu>
+		</>
+	);
+}
 
 /**
  * New/Open/Save/Save As, backed by App's Storage-driven scene methods. A
@@ -195,6 +275,7 @@ export function NavBar({ onAddPanel }: NavBarProps) {
 
 				<FileMenu />
 				<WorkspaceMenu />
+				<RendererMenu />
 
 				<Box sx={{ flex: 1 }} />
 

@@ -1,5 +1,5 @@
-import { vec3 } from "gl-matrix";
-import { VertexBufferLayout, VertexTypes } from "../Renderer/Buffer";
+import { vec2, vec3 } from "gl-matrix";
+import { standardVertexLayout } from "../Renderer/Buffer";
 import { Mesh } from "./Mesh";
 import { Vertex } from "./Vertex";
 
@@ -112,6 +112,11 @@ function parseOBJ(text: string): Mesh {
 			normal: haveFileNormals
 				? vec3.clone(fileNormals[corner.normal as number])
 				: vec3.fromValues(0, 0, 0),
+			// This loader ignores OBJ's `vt` texture coordinates, but every
+			// mesh must still carry the standard layout's three attributes -
+			// see standardVertexLayout's note on why WebGPU makes that
+			// mandatory. Zeroes are what WebGL was already substituting.
+			textureCoord: vec2.fromValues(0, 0),
 		};
 		const index = vertexList.length;
 		vertexList.push(vertex);
@@ -133,12 +138,7 @@ function parseOBJ(text: string): Mesh {
 
 	normalizeToUnitBox(vertexList);
 
-	const layout = new VertexBufferLayout([
-		{ name: "a_position", size: 3, type: VertexTypes.FLOAT, normalized: false },
-		{ name: "a_normal", size: 3, type: VertexTypes.FLOAT, normalized: true },
-	]);
-
-	return new Mesh(vertexList, triangles, layout);
+	return new Mesh(vertexList, triangles, standardVertexLayout());
 }
 
 /**

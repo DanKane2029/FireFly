@@ -1,5 +1,14 @@
-import { Renderer, OffscreenRenderTarget } from "../Renderer/Renderer";
-import { Picker } from "../Renderer/Picker";
+import {
+	BackendKind,
+	RenderBackend,
+	RenderTarget,
+} from "../Renderer/RenderBackend";
+import {
+	BackendPreference,
+	createBackend,
+	loadBackendPreference,
+	saveBackendPreference,
+} from "../Renderer/createBackend";
 import { Camera } from "../Renderer/Camera";
 import { Controller } from "../Controller/Controller";
 import { OrbitalControls } from "../Controller/OrbitalCamera";
@@ -16,7 +25,7 @@ import {
 	gizmoModeForKey,
 } from "../Controller/gizmoModes";
 
-import { mat4, vec2, vec3, vec4 } from "gl-matrix";
+import { mat4, vec3, vec4 } from "gl-matrix";
 
 import { World, Entity } from "../ecs/World";
 import { Scheduler } from "../ecs/System";
@@ -144,9 +153,14 @@ class App {
 	private _lastTime: number;
 
 	// Set only while a Scene panel is displaying the world.
-	private _renderer: Renderer | undefined;
-	private _picker: Picker | undefined;
+	private _backend: RenderBackend | undefined;
 	private _canvasElement: HTMLCanvasElement | undefined;
+	// Which graphics API to ask for on the next attach, and whether the last
+	// attach had to settle for something else (WebGPU asked for, not
+	// available). The Scene panel remounts its canvas when this changes - a
+	// canvas's context type is permanent, so switching needs a new element.
+	private _backendPreference: BackendPreference = loadBackendPreference();
+	private _backendFellBack = false;
 	private _keydownHandler: ((event: KeyboardEvent) => void) | undefined;
 	// Bumped every attach/detach - see rendererGeneration's doc comment.
 	private _rendererGeneration = 0;
@@ -211,37 +225,37 @@ class App {
 
 	/**
 	 * Attaches a canvas so the world can be displayed and interacted with. Called
-	 * by the Scene panel when it mounts. Creates the WebGL context, renderer, and
-	 * picker, and wires up mouse + keyboard input.
+	 * by the Scene panel when it mounts. Creates the render backend and wires up
+	 * mouse + keyboard input.
 	 *
-	 * @param canvas - The canvas the Scene panel owns
+	 * Asynchronous because acquiring a WebGPU device is (`requestAdapter` and
+	 * `requestDevice` are both promises). A Scene panel can unmount before that
+	 * resolves, so the canvas is re-checked afterward and a backend built for a
+	 * canvas that has since gone away is disposed rather than installed.
+	 *
+	 * @param canvas - The canvas the Scene panel owns. Must be a canvas with no
+	 * graphics context yet - see createBackend on why one is never reused.
 	 */
-	attachCanvas(canvas: HTMLCanvasElement): void {
+	async attachCanvas(canvas: HTMLCanvasElement): Promise<void> {
 		this._canvasElement = canvas;
 
-		// antialias must be false: the default framebuffer would otherwise be
-		// multisampled, and blitFramebuffer (used to copy the rendered image to
-		// the canvas) cannot write into a multisampled framebuffer.
-		const gl = canvas.getContext("webgl2", {
-			preserveDrawingBuffer: true,
-			antialias: false,
-		});
-		if (gl === null) {
-			throw new Error("WebGL2 is not supported in this browser.");
+		const { backend, fellBack } = await createBackend(
+			canvas,
+			this._backendPreference
+		);
+
+		if (this._canvasElement !== canvas) {
+			// Detached (or re-attached to a different canvas) while the device
+			// was being acquired - this backend has nothing left to draw into.
+			backend.dispose();
+			return;
 		}
 
-		this._renderer = new Renderer(
-			gl,
-			vec2.fromValues(canvas.width, canvas.height)
-		);
-		this._picker = new Picker(
-			this._renderer.context,
-			this._renderer.frameBuffer,
-			this._renderer.canvasSize
-		);
+		this._backend = backend;
+		this._backendFellBack = fellBack;
 
 		this._camera.aspectRatio = canvas.width / canvas.height;
-		this._renderer.initScene(this._backgroundColor);
+		this._backend.initScene(this._backgroundColor);
 
 		// Reset the clock so the first frame's delta isn't the whole time the
 		// panel was detached.
@@ -257,8 +271,8 @@ class App {
 	}
 
 	/**
-	 * Detaches the current canvas, removing input handlers and dropping the
-	 * renderer/picker. The world is left untouched so it survives the panel being
+	 * Detaches the current canvas, removing input handlers and disposing the
+	 * render backend. The world is left untouched so it survives the panel being
 	 * closed and reopened. Called when the Scene panel unmounts.
 	 */
 	detachCanvas(): void {
@@ -278,8 +292,8 @@ class App {
 			}
 		}
 		this._keydownHandler = undefined;
-		this._renderer = undefined;
-		this._picker = undefined;
+		this._backend?.dispose();
+		this._backend = undefined;
 		this._canvasElement = undefined;
 		this._rendererGeneration++;
 		this.emit();
@@ -294,31 +308,29 @@ class App {
 	 * @param height - New height in device pixels
 	 */
 	resize(width: number, height: number): void {
-		if (!this._renderer || !this._canvasElement) {
+		if (!this._backend || !this._canvasElement) {
 			return;
 		}
 		const w = Math.max(1, Math.floor(width));
 		const h = Math.max(1, Math.floor(height));
 		this._canvasElement.width = w;
 		this._canvasElement.height = h;
-		this._renderer.resize(w, h);
+		this._backend.resize(w, h);
 		this._camera.aspectRatio = w / h;
 	}
 
 	// --- final render (through a scene camera entity) -----------------------
 
 	/**
-	 * Creates an offscreen render target for the Render panel, backed by the
-	 * same WebGL context as the interactive Scene view (see
-	 * OffscreenRenderTarget's doc comment for why a second context isn't an
-	 * option). Returns null if no Scene panel is currently attached - there is
-	 * no context yet to render with.
+	 * Creates an offscreen render target for the Render panel, owned by the
+	 * same backend as the interactive Scene view. Returns null if no Scene
+	 * panel is currently attached - there is no backend yet to render with.
 	 */
-	createRenderTarget(width: number, height: number): OffscreenRenderTarget | null {
-		if (!this._renderer) {
+	createRenderTarget(width: number, height: number): RenderTarget | null {
+		if (!this._backend) {
 			return null;
 		}
-		return this._renderer.createOffscreenTarget(width, height);
+		return this._backend.createOffscreenTarget(width, height);
 	}
 
 	/**
@@ -326,14 +338,14 @@ class App {
 	 * Scene panel is attached.
 	 */
 	resizeRenderTarget(
-		target: OffscreenRenderTarget,
+		target: RenderTarget,
 		width: number,
 		height: number
 	): void {
-		if (!this._renderer) {
+		if (!this._backend) {
 			return;
 		}
-		this._renderer.resizeOffscreenTarget(target, width, height);
+		this._backend.resizeOffscreenTarget(target, width, height);
 	}
 
 	/**
@@ -342,20 +354,22 @@ class App {
 	 * interactive Scene view) excludes editor-only visual aids like gizmo
 	 * handles and camera icons (see gatherRenderables's excludeEditorOnly).
 	 *
-	 * Builds a fresh Renderer/Camera each call from the entity's Transform +
+	 * Builds a fresh Camera each call from the entity's Transform +
 	 * CameraComponent rather than keeping one around - cheap (Camera is a
 	 * plain data/math object, no GPU resources of its own - see Camera.ts) and
 	 * it means a camera entity dragged or rotated via the gizmo is reflected
 	 * immediately, with no separate sync step to keep in mind.
 	 *
-	 * Returns null if no Scene panel is attached, or if `cameraEntity` isn't
-	 * (or is no longer - e.g. it was deleted) a camera.
+	 * Asynchronous because reading pixels back off the GPU is (see
+	 * RenderBackend.readTargetPixels). Resolves to null if no Scene panel is
+	 * attached, or if `cameraEntity` isn't (or is no longer - e.g. it was
+	 * deleted) a camera.
 	 */
-	renderThroughCamera(
-		target: OffscreenRenderTarget,
+	async renderThroughCamera(
+		target: RenderTarget,
 		cameraEntity: Entity
-	): { pixels: Uint8Array; width: number; height: number } | null {
-		if (!this._renderer) {
+	): Promise<{ pixels: Uint8Array; width: number; height: number } | null> {
+		if (!this._backend) {
 			return null;
 		}
 		const transform = this._world.get(cameraEntity, Transform);
@@ -378,14 +392,14 @@ class App {
 		});
 		const lightPositions = gatherLightPositions(this._world);
 
-		this._renderer.renderToTarget(
+		this._backend.renderToTarget(
 			target,
 			renderables,
 			camera,
 			this._ambientLight,
 			lightPositions
 		);
-		const pixels = this._renderer.readTargetPixels(target);
+		const pixels = await this._backend.readTargetPixels(target);
 
 		return { pixels, width: target.width, height: target.height };
 	}
@@ -394,11 +408,11 @@ class App {
 	 * Deletes a render target created by `createRenderTarget`. No-op if no
 	 * Scene panel is attached.
 	 */
-	deleteRenderTarget(target: OffscreenRenderTarget): void {
-		if (!this._renderer) {
+	deleteRenderTarget(target: RenderTarget): void {
+		if (!this._backend) {
 			return;
 		}
-		this._renderer.deleteOffscreenTarget(target);
+		this._backend.deleteOffscreenTarget(target);
 	}
 
 	/**
@@ -417,43 +431,90 @@ class App {
 	}
 
 	/**
-	 * Gets the renderer the app uses. Only valid while a Scene panel is attached.
+	 * Which graphics API is actually in use, or undefined when no Scene panel
+	 * is attached. Not the same as `backendPreference`: "auto" resolves to one
+	 * of these, and an explicit "webgpu" can still land on WebGL2.
 	 */
-	get renderer(): Renderer {
-		if (!this._renderer) {
-			throw new Error("No renderer: attach a canvas before rendering.");
-		}
-		return this._renderer;
+	get backendKind(): BackendKind | undefined {
+		return this._backend?.kind;
+	}
+
+	/** Which graphics API will be requested on the next attach. */
+	get backendPreference(): BackendPreference {
+		return this._backendPreference;
+	}
+
+	/** True when the last attach could not honor an explicit backend request
+	 * and fell back to WebGL2 - the UI says so rather than silently showing
+	 * the wrong thing as selected. */
+	get backendFellBack(): boolean {
+		return this._backendFellBack;
 	}
 
 	/**
-	 * Gets the picker the app uses to resolve clicks to scene objects. Only valid
-	 * while a Scene panel is attached.
+	 * Chooses the graphics API to use from the next attach onward, and
+	 * persists it.
+	 *
+	 * Takes effect when the Scene panel remounts its canvas, which it does in
+	 * response to this change - a canvas's context type can never be changed,
+	 * so switching backends means a new canvas element (see createBackend).
 	 */
-	get picker(): Picker {
-		if (!this._picker) {
-			throw new Error("No picker: attach a canvas before picking.");
+	setBackendPreference(preference: BackendPreference): void {
+		if (preference === this._backendPreference) {
+			return;
 		}
-		return this._picker;
+		this._backendPreference = preference;
+		saveBackendPreference(preference);
+		this.emit();
+	}
+
+	/**
+	 * Gets the render backend the app draws through. Only valid while a Scene
+	 * panel is attached.
+	 */
+	get backend(): RenderBackend {
+		if (!this._backend) {
+			throw new Error("No backend: attach a canvas before rendering.");
+		}
+		return this._backend;
+	}
+
+	/**
+	 * Resolves a click to the object drawn under it, in id-texture pixels with
+	 * the origin at the top-left. Resolves to null for the background, and for
+	 * a click that arrives while no Scene panel is attached.
+	 *
+	 * Asynchronous because GPU readback is - see RenderBackend.pick. Callers
+	 * that start an interaction from the result (the gizmo's drag, say) must
+	 * assume the world may have moved on by the time it resolves.
+	 *
+	 * @param x - X coordinate in id-texture pixels, from the left
+	 * @param y - Y coordinate in id-texture pixels, from the top
+	 */
+	async pick(x: number, y: number): Promise<number | null> {
+		if (!this._backend) {
+			return null;
+		}
+		return this._backend.pick(x, y);
 	}
 
 	/**
 	 * Whether a canvas is currently attached (and rendering is possible).
 	 */
 	get isAttached(): boolean {
-		return this._renderer !== undefined;
+		return this._backend !== undefined;
 	}
 
 	/**
 	 * Bumped every time a Scene panel attaches or detaches its canvas - and
-	 * therefore creates or destroys the WebGL context (see attachCanvas: it
-	 * always calls `canvas.getContext("webgl2", ...)` fresh, never reuses one).
-	 * A render target from a previous generation (see createRenderTarget) holds
-	 * GPU resource handles that belong to a context which may no longer exist;
-	 * the Render panel compares this against the generation it created its
-	 * target under to know when to throw the old one away and make a new one,
-	 * rather than issuing GL calls against the current context with a handle
-	 * from a different, possibly-destroyed one.
+	 * therefore creates or destroys the GPU context (see attachCanvas: it
+	 * always builds a fresh backend, never reuses one). A render target from a
+	 * previous generation (see createRenderTarget) holds GPU resource handles
+	 * that belong to a backend which may no longer exist; the Render panel
+	 * compares this against the generation it created its target under to know
+	 * when to throw the old one away and make a new one, rather than issuing
+	 * GPU calls against the current backend with a handle from a different,
+	 * possibly-destroyed one.
 	 */
 	get rendererGeneration(): number {
 		return this._rendererGeneration;
@@ -864,8 +925,8 @@ class App {
 		);
 		this._ambientLight = environment.ambientLight;
 		this._backgroundColor = environment.backgroundColor;
-		if (this._renderer) {
-			this._renderer.setClearColor(this._backgroundColor);
+		if (this._backend) {
+			this._backend.setClearColor(this._backgroundColor);
 		}
 
 		this._currentFileRef = ref;
@@ -1008,7 +1069,7 @@ class App {
 	 * is attached.
 	 */
 	render(): void {
-		if (!this._renderer) {
+		if (!this._backend) {
 			return;
 		}
 
@@ -1054,7 +1115,7 @@ class App {
 				: undefined;
 
 		renderSystem(this._world, {
-			renderer: this._renderer,
+			backend: this._backend,
 			camera: this._camera,
 			ambientLight: this._ambientLight,
 			outlineRenderables,

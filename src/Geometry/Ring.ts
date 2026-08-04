@@ -3,7 +3,7 @@ import { vec3 } from "gl-matrix";
 
 import { Mesh } from "./Mesh";
 import { Vertex } from "./Vertex";
-import { VertexBufferLayout, VertexTypes } from "../Renderer/Buffer";
+import { standardVertexLayout } from "../Renderer/Buffer";
 
 /**
  * A flat annulus in the local XY plane (default-facing +Z), parameterized by
@@ -36,26 +36,7 @@ class Ring extends ParameterizedGeometry {
 	calculateMesh(detailLevel: number): Mesh {
 		const segments = Math.max(3, detailLevel);
 
-		const vertexBufferLayout = new VertexBufferLayout([
-			{
-				name: "a_position",
-				size: 3,
-				type: VertexTypes.FLOAT,
-				normalized: false,
-			},
-			{
-				name: "a_normal",
-				size: 3,
-				type: VertexTypes.FLOAT,
-				normalized: true,
-			},
-			{
-				name: "a_texCoord",
-				size: 2,
-				type: VertexTypes.FLOAT,
-				normalized: false,
-			},
-		]);
+		const vertexBufferLayout = standardVertexLayout();
 
 		const vertexList: Vertex[] = [];
 		const indicesList: number[][] = [];

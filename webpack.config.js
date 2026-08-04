@@ -58,6 +58,13 @@ module.exports = (env, argv) => ({
                 loader: 'ts-shader-loader'
 			},
 			{
+				// WGSL shaders are inlined as raw text, the same way
+				// ts-shader-loader inlines GLSL above. A separate rule because
+				// ts-shader-loader only recognizes GLSL extensions.
+				test: /\.wgsl$/i,
+				type: 'asset/source'
+			},
+			{
 				// Inline .obj model files as their raw text so they can be
 				// `import`ed as a string and parsed by OBJLoader - mirrors how
 				// ts-shader-loader inlines .glsl above. Keeps model loading fully

@@ -3,7 +3,7 @@ import { AssetRegistry } from "../Assets/AssetRegistry";
 import { Sphere } from "../Geometry/Sphere";
 import { Shader, ShaderProgram, ShaderType } from "../Renderer/Shader";
 import { MaterialPropertyType } from "../Renderer/Material";
-import { Renderer } from "../Renderer/Renderer";
+import { RenderBackend } from "../Renderer/RenderBackend";
 
 function stubProgram(): ShaderProgram {
 	return new ShaderProgram(
@@ -13,23 +13,23 @@ function stubProgram(): ShaderProgram {
 }
 
 /**
- * Records which GPU delete calls the registry made, without needing a real GL
- * context - mirrors the Renderer stub in ecs.test.ts.
+ * Records which GPU delete calls the registry made, without needing a real GPU
+ * context - mirrors the backend stub in ecs.test.ts.
  */
-function stubRenderer() {
+function stubBackend() {
 	const deleted: { vertexBuffers: unknown[]; indexBuffers: unknown[] } = {
 		vertexBuffers: [],
 		indexBuffers: [],
 	};
-	const renderer = {
+	const backend = {
 		deleteVertexBuffer: (buffer: unknown) =>
 			deleted.vertexBuffers.push(buffer),
 		deleteIndexBuffer: (buffer: unknown) =>
 			deleted.indexBuffers.push(buffer),
 		// eslint-disable-next-line @typescript-eslint/no-empty-function
 		deleteTexture: () => {},
-	} as unknown as Renderer;
-	return { renderer, deleted };
+	} as unknown as RenderBackend;
+	return { backend, deleted };
 }
 
 describe("AssetRegistry meshes", () => {
@@ -83,8 +83,8 @@ describe("AssetRegistry meshes", () => {
 			mesh
 		);
 
-		const { renderer, deleted } = stubRenderer();
-		registry.disposeMesh(renderer, "mesh/sphere");
+		const { backend, deleted } = stubBackend();
+		registry.disposeMesh(backend, "mesh/sphere");
 
 		expect(deleted.vertexBuffers).toEqual([mesh.vertexBuffer]);
 		expect(deleted.indexBuffers).toEqual([mesh.indexBuffer]);

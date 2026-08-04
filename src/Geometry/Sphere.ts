@@ -1,6 +1,6 @@
 import { vec2, vec3 } from "gl-matrix";
 import { toCatesianCoord } from "../Math/SphericalCoordinates";
-import { VertexBufferLayout, VertexTypes } from "../Renderer/Buffer";
+import { standardVertexLayout } from "../Renderer/Buffer";
 import { Mesh } from "./Mesh";
 import { ParameterizedGeometry } from "./ParameterizedGeometry";
 import { Vertex } from "./Vertex";
@@ -107,26 +107,7 @@ class Sphere extends ParameterizedGeometry {
 			};
 		});
 
-		const vertexBufferLayout = new VertexBufferLayout([
-			{
-				name: "a_position",
-				size: 3,
-				type: VertexTypes.FLOAT,
-				normalized: false,
-			},
-			{
-				name: "a_normal",
-				size: 3,
-				type: VertexTypes.FLOAT,
-				normalized: true,
-			},
-			{
-				name: "a_texCoord",
-				size: 2,
-				type: VertexTypes.FLOAT,
-				normalized: false,
-			},
-		]);
+		const vertexBufferLayout = standardVertexLayout();
 
 		return new Mesh(vertexList, indices, vertexBufferLayout);
 	}

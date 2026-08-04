@@ -9,6 +9,8 @@ import VertLightingShader from "../Shaders/Lighting.vert.glsl";
 import FragLightingShader from "../Shaders/Lighting.frag.glsl";
 import VertUnlitShader from "../Shaders/Unlit.vert.glsl";
 import FragUnlitShader from "../Shaders/Unlit.frag.glsl";
+import LightingWgsl from "../Shaders/wgsl/Lighting.wgsl";
+import UnlitWgsl from "../Shaders/wgsl/Unlit.wgsl";
 import bunnyObj from "../../res/models/bunny.obj";
 import dragonObj from "../../res/models/dragon.obj";
 
@@ -35,9 +37,13 @@ import { assetRegistry } from "../Assets/AssetRegistry";
  */
 
 // One shared lit shader program for every entity (compiled once on the GPU).
+// Each program carries both languages - the GLSL pair WebGL links, and the
+// WGSL twin WebGPU compiles - so whichever backend is active finds what it
+// needs. See Renderer/Shader.ts on why both are hand-written.
 export const litProgram = new ShaderProgram(
 	new Shader(VertLightingShader, ShaderType.VERTEX),
-	new Shader(FragLightingShader, ShaderType.FRAGMENT)
+	new Shader(FragLightingShader, ShaderType.FRAGMENT),
+	LightingWgsl
 );
 
 // A flat, lighting-independent shader for overlay geometry that shouldn't be
@@ -46,7 +52,8 @@ export const litProgram = new ShaderProgram(
 // scene's lights, not a Lambert-shaded one.
 export const unlitProgram = new ShaderProgram(
 	new Shader(VertUnlitShader, ShaderType.VERTEX),
-	new Shader(FragUnlitShader, ShaderType.FRAGMENT)
+	new Shader(FragUnlitShader, ShaderType.FRAGMENT),
+	UnlitWgsl
 );
 
 /** Registers a material that uses the shared lit program with its own color,
