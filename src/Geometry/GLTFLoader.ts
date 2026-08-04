@@ -1,5 +1,5 @@
 import { mat4, quat, vec2, vec3 } from "gl-matrix";
-import { VertexBufferLayout, VertexLayout, VertexTypes } from "../Renderer/Buffer";
+import { standardVertexLayout } from "../Renderer/Buffer";
 import { Mesh } from "./Mesh";
 import { Vertex } from "./Vertex";
 import {
@@ -416,27 +416,18 @@ function buildMeshFromPrimitive(
 		triangles.push([flatIndices[i], flatIndices[i + 1], flatIndices[i + 2]]);
 	}
 
+	// A primitive with no TEXCOORD_0 still gets zeroed UVs rather than a
+	// shorter layout: every mesh carries the same three attributes, because
+	// WebGPU requires a pipeline to supply every location its shader declares
+	// (see standardVertexLayout).
 	const vertexList: Vertex[] = positions.map((position, i) => ({
 		position,
 		normal: normals[i],
-		textureCoord: texCoords ? texCoords[i] : undefined,
+		textureCoord: texCoords ? texCoords[i] : vec2.fromValues(0, 0),
 	}));
 
-	const attributes: VertexLayout[] = [
-		{ name: "a_position", size: 3, type: VertexTypes.FLOAT, normalized: false },
-		{ name: "a_normal", size: 3, type: VertexTypes.FLOAT, normalized: true },
-	];
-	if (texCoords) {
-		attributes.push({
-			name: "a_texCoord",
-			size: 2,
-			type: VertexTypes.FLOAT,
-			normalized: false,
-		});
-	}
-
 	return {
-		mesh: new Mesh(vertexList, triangles, new VertexBufferLayout(attributes)),
+		mesh: new Mesh(vertexList, triangles, standardVertexLayout()),
 		materialIndex: primitive.material ?? null,
 	};
 }

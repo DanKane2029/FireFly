@@ -3,7 +3,7 @@ import { vec3 } from "gl-matrix";
 
 import { Mesh } from "./Mesh";
 import { Vertex } from "./Vertex";
-import { VertexBufferLayout, VertexTypes } from "../Renderer/Buffer";
+import { standardVertexLayout } from "../Renderer/Buffer";
 
 /**
  * A small pyramid (apex at the local origin, a rectangular base a fixed
@@ -35,26 +35,7 @@ class Frustum extends ParameterizedGeometry {
 		const halfHeight = this._height / 2;
 		const depth = this._depth;
 
-		const vertexBufferLayout = new VertexBufferLayout([
-			{
-				name: "a_position",
-				size: 3,
-				type: VertexTypes.FLOAT,
-				normalized: false,
-			},
-			{
-				name: "a_normal",
-				size: 3,
-				type: VertexTypes.FLOAT,
-				normalized: true,
-			},
-			{
-				name: "a_texCoord",
-				size: 2,
-				type: VertexTypes.FLOAT,
-				normalized: false,
-			},
-		]);
+		const vertexBufferLayout = standardVertexLayout();
 
 		const apex: vec3 = [0, 0, 0];
 		const topLeft: vec3 = [-halfWidth, halfHeight, -depth];

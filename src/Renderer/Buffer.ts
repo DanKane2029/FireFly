@@ -143,10 +143,50 @@ class VertexBufferLayout {
 	}
 }
 
+/**
+ * The vertex layout every mesh in Firefly uses: position, normal, texture
+ * coordinate, interleaved in that order.
+ *
+ * Meshes used to declare their own layouts, and one that had no UVs simply
+ * left `a_texCoord` out. WebGL tolerates that - an unfed attribute reads
+ * (0,0,0,1) and the shader carries on - but **WebGPU rejects it**: a pipeline
+ * must supply every attribute location its shader declares, or creating it
+ * fails validation. Rather than compile a shader variant per layout, every
+ * mesh now carries all three attributes, and a mesh with no real UVs stores
+ * zeroes - exactly the value WebGL was inventing for it anyway.
+ *
+ * Returns a fresh instance per call rather than one shared constant, since a
+ * VertexBufferLayout is mutable and each mesh holds on to the one it was
+ * built with.
+ */
+function standardVertexLayout(): VertexBufferLayout {
+	return new VertexBufferLayout([
+		{
+			name: "a_position",
+			size: 3,
+			type: VertexTypes.FLOAT,
+			normalized: false,
+		},
+		{
+			name: "a_normal",
+			size: 3,
+			type: VertexTypes.FLOAT,
+			normalized: true,
+		},
+		{
+			name: "a_texCoord",
+			size: 2,
+			type: VertexTypes.FLOAT,
+			normalized: false,
+		},
+	]);
+}
+
 export {
 	VertexBuffer,
 	IndexBuffer,
 	VertexBufferLayout,
 	VertexLayout,
 	VertexTypes,
+	standardVertexLayout,
 };

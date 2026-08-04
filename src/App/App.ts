@@ -1,5 +1,14 @@
-import { RenderBackend, RenderTarget } from "../Renderer/RenderBackend";
-import { WebGLBackend } from "../Renderer/webgl/WebGLBackend";
+import {
+	BackendKind,
+	RenderBackend,
+	RenderTarget,
+} from "../Renderer/RenderBackend";
+import {
+	BackendPreference,
+	createBackend,
+	loadBackendPreference,
+	saveBackendPreference,
+} from "../Renderer/createBackend";
 import { Camera } from "../Renderer/Camera";
 import { Controller } from "../Controller/Controller";
 import { OrbitalControls } from "../Controller/OrbitalCamera";
@@ -16,7 +25,7 @@ import {
 	gizmoModeForKey,
 } from "../Controller/gizmoModes";
 
-import { mat4, vec2, vec3, vec4 } from "gl-matrix";
+import { mat4, vec3, vec4 } from "gl-matrix";
 
 import { World, Entity } from "../ecs/World";
 import { Scheduler } from "../ecs/System";
@@ -146,6 +155,12 @@ class App {
 	// Set only while a Scene panel is displaying the world.
 	private _backend: RenderBackend | undefined;
 	private _canvasElement: HTMLCanvasElement | undefined;
+	// Which graphics API to ask for on the next attach, and whether the last
+	// attach had to settle for something else (WebGPU asked for, not
+	// available). The Scene panel remounts its canvas when this changes - a
+	// canvas's context type is permanent, so switching needs a new element.
+	private _backendPreference: BackendPreference = loadBackendPreference();
+	private _backendFellBack = false;
 	private _keydownHandler: ((event: KeyboardEvent) => void) | undefined;
 	// Bumped every attach/detach - see rendererGeneration's doc comment.
 	private _rendererGeneration = 0;
@@ -213,26 +228,31 @@ class App {
 	 * by the Scene panel when it mounts. Creates the render backend and wires up
 	 * mouse + keyboard input.
 	 *
-	 * @param canvas - The canvas the Scene panel owns
+	 * Asynchronous because acquiring a WebGPU device is (`requestAdapter` and
+	 * `requestDevice` are both promises). A Scene panel can unmount before that
+	 * resolves, so the canvas is re-checked afterward and a backend built for a
+	 * canvas that has since gone away is disposed rather than installed.
+	 *
+	 * @param canvas - The canvas the Scene panel owns. Must be a canvas with no
+	 * graphics context yet - see createBackend on why one is never reused.
 	 */
-	attachCanvas(canvas: HTMLCanvasElement): void {
+	async attachCanvas(canvas: HTMLCanvasElement): Promise<void> {
 		this._canvasElement = canvas;
 
-		// antialias must be false: the default framebuffer would otherwise be
-		// multisampled, and blitFramebuffer (used to copy the rendered image to
-		// the canvas) cannot write into a multisampled framebuffer.
-		const gl = canvas.getContext("webgl2", {
-			preserveDrawingBuffer: true,
-			antialias: false,
-		});
-		if (gl === null) {
-			throw new Error("WebGL2 is not supported in this browser.");
+		const { backend, fellBack } = await createBackend(
+			canvas,
+			this._backendPreference
+		);
+
+		if (this._canvasElement !== canvas) {
+			// Detached (or re-attached to a different canvas) while the device
+			// was being acquired - this backend has nothing left to draw into.
+			backend.dispose();
+			return;
 		}
 
-		this._backend = new WebGLBackend(
-			gl,
-			vec2.fromValues(canvas.width, canvas.height)
-		);
+		this._backend = backend;
+		this._backendFellBack = fellBack;
 
 		this._camera.aspectRatio = canvas.width / canvas.height;
 		this._backend.initScene(this._backgroundColor);
@@ -408,6 +428,44 @@ class App {
 	 */
 	get world(): World {
 		return this._world;
+	}
+
+	/**
+	 * Which graphics API is actually in use, or undefined when no Scene panel
+	 * is attached. Not the same as `backendPreference`: "auto" resolves to one
+	 * of these, and an explicit "webgpu" can still land on WebGL2.
+	 */
+	get backendKind(): BackendKind | undefined {
+		return this._backend?.kind;
+	}
+
+	/** Which graphics API will be requested on the next attach. */
+	get backendPreference(): BackendPreference {
+		return this._backendPreference;
+	}
+
+	/** True when the last attach could not honor an explicit backend request
+	 * and fell back to WebGL2 - the UI says so rather than silently showing
+	 * the wrong thing as selected. */
+	get backendFellBack(): boolean {
+		return this._backendFellBack;
+	}
+
+	/**
+	 * Chooses the graphics API to use from the next attach onward, and
+	 * persists it.
+	 *
+	 * Takes effect when the Scene panel remounts its canvas, which it does in
+	 * response to this change - a canvas's context type can never be changed,
+	 * so switching backends means a new canvas element (see createBackend).
+	 */
+	setBackendPreference(preference: BackendPreference): void {
+		if (preference === this._backendPreference) {
+			return;
+		}
+		this._backendPreference = preference;
+		saveBackendPreference(preference);
+		this.emit();
 	}
 
 	/**
