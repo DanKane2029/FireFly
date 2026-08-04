@@ -23,7 +23,7 @@ export type GizmoMode = "translate" | "rotate" | "scale";
  * Marks an entity as one of the gizmo's draggable axis handles, and which
  * axis it drags. Gizmo handles are real entities (Transform + MeshRef +
  * MaterialRef, like any other object - see Gizmo.ts/App.render()), so
- * GizmoController resolves a Picker hit back to an axis via this component
+ * GizmoController resolves a pick hit back to an axis via this component
  * instead of a reserved-id scheme the way earlier versions of this gizmo
  * did; a real entity already has a real (positive) id of its own.
  */

@@ -12,7 +12,7 @@ import { useApp, useEditorStore } from "../EngineContext";
 import { Entity } from "../../ecs/World";
 import { CameraComponent } from "../../ecs/components/Camera";
 import { Named } from "../../ecs/components/Named";
-import { OffscreenRenderTarget } from "../../Renderer/Renderer";
+import { RenderTarget } from "../../Renderer/RenderBackend";
 
 function imageDataFrom(
 	pixels: Uint8Array,
@@ -33,11 +33,10 @@ function imageDataFrom(
  * actually look like. Not a singleton panel - multiple instances can each
  * watch a different camera.
  *
- * Draws to a plain 2D `<canvas>`, not a WebGL one: this engine's GPU resource
- * classes are tied to a single WebGL context (see Renderer.ts's
- * OffscreenRenderTarget doc comment), so this panel reuses the Scene panel's
- * context via App.renderThroughCamera, which renders into an offscreen
- * framebuffer and reads the pixels back with readPixels.
+ * Draws to a plain 2D `<canvas>`, not a WebGL/WebGPU one: this panel reuses
+ * the Scene panel's render backend via App.renderThroughCamera, which renders
+ * into an offscreen target and reads the pixels back, rather than standing up
+ * a second GPU context of its own.
  */
 export function RenderPanel() {
 	const app = useApp();
@@ -45,12 +44,12 @@ export function RenderPanel() {
 
 	const containerRef = useRef<HTMLDivElement>(null);
 	const canvasRef = useRef<HTMLCanvasElement>(null);
-	const targetRef = useRef<OffscreenRenderTarget | null>(null);
+	const targetRef = useRef<RenderTarget | null>(null);
 	// Which Scene-panel-attach "generation" targetRef's target was created
 	// under - see App.rendererGeneration's doc comment for why a stale target
-	// must never be reused against a new WebGL context, and must not be
-	// deleted through the new one either (its handles belong to the old,
-	// already-discarded context).
+	// must never be reused against a new backend, and must not be deleted
+	// through the new one either (its handles belong to the old,
+	// already-discarded one).
 	const targetGenerationRef = useRef<number>(-1);
 
 	const [selectedCamera, setSelectedCamera] = useState<Entity | null>(null);
@@ -91,6 +90,15 @@ export function RenderPanel() {
 		canvas.width = Math.max(1, Math.floor(rect.width));
 		canvas.height = Math.max(1, Math.floor(rect.height));
 
+		// Reading pixels back off the GPU is asynchronous, so a frame's result
+		// arrives after its requestAnimationFrame tick has long returned.
+		// `inFlight` keeps exactly one readback outstanding - without it, a
+		// readback slower than a frame would queue up an ever-growing backlog
+		// of stale images. `cancelled` stops a result that lands after the
+		// panel unmounts from drawing into a dead 2D context.
+		let inFlight = false;
+		let cancelled = false;
+
 		let frame = requestAnimationFrame(function loop() {
 			if (app.isAttached) {
 				if (targetGenerationRef.current !== app.rendererGeneration) {
@@ -120,15 +128,29 @@ export function RenderPanel() {
 
 			const target = targetRef.current;
 			const cameraEntity = selectedCameraRef.current;
-			if (target && cameraEntity !== null) {
-				const result = app.renderThroughCamera(target, cameraEntity);
-				if (result) {
-					ctx.putImageData(
-						imageDataFrom(result.pixels, result.width, result.height),
-						0,
-						0
-					);
-				}
+			if (target && cameraEntity !== null && !inFlight) {
+				inFlight = true;
+				app.renderThroughCamera(target, cameraEntity)
+					.then((result) => {
+						// The target may have been resized, replaced (a new
+						// backend generation), or dropped while the readback
+						// was in flight - in which case these pixels describe
+						// a surface that no longer exists.
+						if (cancelled || !result || targetRef.current !== target) {
+							return;
+						}
+						ctx.putImageData(
+							imageDataFrom(result.pixels, result.width, result.height),
+							0,
+							0
+						);
+					})
+					.catch((error) => {
+						console.error("Final render failed:", error);
+					})
+					.finally(() => {
+						inFlight = false;
+					});
 			}
 
 			frame = requestAnimationFrame(loop);
@@ -147,6 +169,7 @@ export function RenderPanel() {
 		observer.observe(container);
 
 		return () => {
+			cancelled = true;
 			cancelAnimationFrame(frame);
 			observer.disconnect();
 			if (targetRef.current) {

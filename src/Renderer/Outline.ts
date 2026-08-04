@@ -1,7 +1,7 @@
 import { mat4 } from "gl-matrix";
 import { unlitProgram } from "../ecs/prefabs";
 import { Material, MaterialPropertyType } from "./Material";
-import { Renderable } from "./Renderer";
+import { Renderable } from "./RenderBackend";
 import { Mesh } from "../Geometry/Mesh";
 import { scaleAboutLocalOrigin } from "./OutlineMath";
 

@@ -43,6 +43,20 @@ class GizmoController implements Controller {
 
 	private _draggingAxis: GizmoAxis | null = null;
 	private _dragEntity: Entity | null = null;
+
+	// Picking is asynchronous (App.pick reads the id-texture back off the GPU),
+	// so the world can move on between a press and its answer. These two guard
+	// against acting on a stale one:
+	//
+	// _pickRequest is bumped by every press, so a resolved pick can tell
+	// whether it is still the newest - a fast double press must not have its
+	// first answer applied after its second.
+	//
+	// _buttonDown says whether the button is still held. A pick that resolves
+	// after the release must not start a drag: there is no mouseup left to end
+	// it, so the object would follow the cursor indefinitely.
+	private _pickRequest = 0;
+	private _buttonDown = false;
 	// The object's translation at drag start - every mode's math is relative
 	// to this fixed pivot rather than the object's live (moving/rotating)
 	// state, so a drag never compounds its own effect frame over frame.
@@ -73,13 +87,17 @@ class GizmoController implements Controller {
 
 	/**
 	 * Picks whatever is under the cursor. A gizmo handle starts a drag; an
-	 * entity (or the background) is selected immediately, same as
-	 * SelectObjectController.
+	 * entity (or the background) is selected, same as SelectObjectController.
+	 *
+	 * The pick is awaited, so everything below happens a frame or so after the
+	 * press. That is invisible to the user, and the drag is unaffected by the
+	 * delay: `startDrag` reads the *press* event, not the cursor's position
+	 * now, so the drag still originates exactly where the button went down.
 	 *
 	 * @param app - The application being interacted with
 	 * @param event - The mouse event fired on press
 	 */
-	onMouseDown(app: App, event: MouseEvent): void {
+	async onMouseDown(app: App, event: MouseEvent): Promise<void> {
 		// Right button is reserved for the always-on camera orbit (see
 		// OrbitalControls); only the left button drives this tool, so both can
 		// be used without switching modes.
@@ -90,14 +108,24 @@ class GizmoController implements Controller {
 			return;
 		}
 
+		this._buttonDown = true;
+		const requestId = ++this._pickRequest;
+
 		const pixel = this.idTexturePixel(app, event);
-		const pickedId = app.picker.pick(pixel[0], pixel[1]);
+		const pickedId = await app.pick(pixel[0], pixel[1]);
+
+		// A newer press started while this pick was in flight - that press owns
+		// the interaction now, and applying this answer would fight it.
+		if (requestId !== this._pickRequest) {
+			return;
+		}
+
 		const handle =
 			pickedId !== null
 				? app.world.get(pickedId, GizmoHandle)
 				: undefined;
 
-		if (handle && app.selectedId !== null) {
+		if (handle && app.selectedId !== null && this._buttonDown) {
 			const transform = app.world.get(app.selectedId, Transform);
 			if (
 				transform &&
@@ -292,8 +320,10 @@ class GizmoController implements Controller {
 		}
 	}
 
-	/** Ends the drag, if one was in progress. */
+	/** Ends the drag, if one was in progress. Also clears _buttonDown, so a
+	 * pick still in flight from the press knows not to begin one. */
 	onMouseUp(): void {
+		this._buttonDown = false;
 		this._draggingAxis = null;
 		this._dragEntity = null;
 		this._dragStartTranslation = null;
@@ -334,11 +364,11 @@ class GizmoController implements Controller {
 	}
 
 	/** The cursor position in id-texture pixels (top-left origin), for
-	 * Picker.pick - matches SelectObjectController's mapping. */
+	 * App.pick - matches SelectObjectController's mapping. */
 	private idTexturePixel(app: App, event: MouseEvent): [number, number] {
 		const element = event.target as Element;
 		const rect = element.getBoundingClientRect();
-		const size = app.renderer.canvasSize;
+		const size = app.backend.canvasSize;
 		return [
 			((event.clientX - rect.left) / rect.width) * size[0],
 			((event.clientY - rect.top) / rect.height) * size[1],

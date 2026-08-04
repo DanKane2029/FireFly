@@ -143,7 +143,7 @@ function CameraLegend() {
 /**
  * The panel that displays the 3D scene - the WebGL view that used to be the
  * whole app. It owns a `<canvas>`, hands it to the App (which builds the
- * Renderer/Picker and wires mouse + keyboard input), drives the render loop, and
+ * the render backend and wires mouse + keyboard input), drives the render loop, and
  * keeps the canvas and framebuffer sized to the panel with a ResizeObserver.
  *
  * The App/Scene outlive this component, so the world survives the panel being

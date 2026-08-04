@@ -6,47 +6,36 @@ import {
 	VertexBufferLayout,
 	VertexLayout,
 	VertexTypes,
-} from "./Buffer";
-import { Shader, ShaderProgram, ShaderType } from "./Shader";
-import { Texture } from "./Texture";
-import { Material, MaterialProperty, MaterialPropertyType } from "./Material";
-import { Camera } from "./Camera";
-
-/**
- * The number of point lights the lighting shader declares (`MAX_LIGHTS` in
- * Lighting.frag.glsl). Lights past this are ignored; keep the two in step.
- */
-const MAX_LIGHTS = 10;
-
-/**
- * One thing to draw this frame: a mesh (its GPU buffers) with a material and a
- * world transform, plus the id to write into the picking id-texture. The
- * RenderSystem builds these from the ECS world; the Renderer stays a pure GPU
- * backend that knows nothing about entities or the scene graph.
- */
-export interface Renderable {
-	id: number;
-	transform: mat4;
-	material: Material;
-	vertexBuffer: VertexBuffer;
-	indexBuffer: IndexBuffer;
-}
+} from "../Buffer";
+import { Shader, ShaderProgram, ShaderType } from "../Shader";
+import { Texture } from "../Texture";
+import { Material, MaterialProperty, MaterialPropertyType } from "../Material";
+import { Camera } from "../Camera";
+import {
+	BackendKind,
+	MAX_LIGHTS,
+	RenderBackend,
+	RenderTarget,
+	Renderable,
+} from "../RenderBackend";
+import { ATTRIBUTE_LOCATIONS, attributeLocation } from "../attributeLocations";
+import { GLResourceCache } from "./GLResourceCache";
 
 /**
  * A second, smaller render target within the same WebGL context as the main
  * canvas - what the final-render panel draws into (see App.renderThroughCamera
- * and Renderer.renderToTarget). RGBA8 color only, no id-texture: nothing ever
- * needs to pick an object in this render, so it skips the main framebuffer's
+ * and renderToTarget). RGBA8 color only, no id-texture: nothing ever needs to
+ * pick an object in this render, so it skips the main framebuffer's
  * dual-attachment/MRT setup entirely.
  *
  * A second, independent `WebGL2RenderingContext` was considered and rejected
- * for this: every GPU resource class here (VertexBuffer, IndexBuffer, Texture,
- * Shader, ShaderProgram) holds exactly one un-namespaced, context-bound handle,
- * set once. Two live contexts sharing the same Mesh/Material objects would
- * silently corrupt whichever context "creates" a resource second. Reusing the
- * single existing context via a second framebuffer sidesteps that entirely.
+ * for this. That is no longer a hard constraint - GPU handles moved off the
+ * asset objects and into GLResourceCache, so two contexts could each hold
+ * their own handles for a shared Mesh without corrupting each other - but a
+ * second framebuffer in the existing context is still simpler and cheaper than
+ * a second context, so it stays.
  */
-export interface OffscreenRenderTarget {
+interface GLRenderTarget extends RenderTarget {
 	framebuffer: WebGLFramebuffer;
 	colorRenderbuffer: WebGLRenderbuffer;
 	depthRenderbuffer: WebGLRenderbuffer;
@@ -55,26 +44,35 @@ export interface OffscreenRenderTarget {
 }
 
 /**
- * Renders a list of renderables to a WebGL canvas.
+ * Renders a list of renderables through WebGL2.
  *
- * The Renderer owns the WebGL2 context and translates high-level objects
+ * The backend owns the WebGL2 context and translates high-level objects
  * (meshes, materials, transforms) into GPU calls. The overall flow is:
  *
- *   1. initScene()      - one-time framebuffer + global GL state setup.
+ *   1. initScene()       - one-time framebuffer + global GL state setup.
  *   2. ensureResources() - lazily upload buffers/shaders/textures.
- *   3. render()         - per frame: set uniforms and issue draw calls.
+ *   3. render()          - per frame: set uniforms and issue draw calls.
  *
  * Rendering targets an offscreen framebuffer with two color attachments: the
- * visible image and an integer id-texture used for GPU object picking.
+ * visible image and an integer id-texture used for GPU object picking, which
+ * `pick` reads back on demand.
+ *
+ * WebGL is a global state machine, so almost everything here is bind-this,
+ * set-that, draw. Contrast webgpu/WebGPUBackend.ts, which has to bake the same
+ * decisions into immutable pipeline objects up front - the two files are worth
+ * reading side by side.
  */
-class Renderer {
+class WebGLBackend implements RenderBackend {
+	readonly kind: BackendKind = "webgl2";
+
 	private _gl: WebGL2RenderingContext;
-	public _frameBuffer: WebGLFramebuffer;
-	public _renderBuffer: WebGLRenderbuffer;
-	public _idTexture: WebGLTexture;
+	private _frameBuffer: WebGLFramebuffer;
+	private _renderBuffer: WebGLRenderbuffer;
+	private _idTexture: WebGLTexture;
 	private _depthBuffer: WebGLRenderbuffer;
 	private _canvasSize: vec2;
 	private _clearColor: vec4;
+	private _resources = new GLResourceCache();
 	// A 1x1 white texture, always bound to TEXTURE0 before a material's own
 	// properties are applied (see setMaterial). Materials with no texture
 	// property still sample *something* through u_texture - white multiplies
@@ -83,9 +81,10 @@ class Renderer {
 	private _defaultTexture!: Texture;
 
 	/**
-	 * Creates a new Renderer
+	 * Creates a new WebGL backend.
 	 *
 	 * @param gl - The WebGL2 context to render to
+	 * @param size - The initial canvas size in device pixels
 	 */
 	constructor(gl: WebGL2RenderingContext, size: vec2) {
 		this._gl = gl;
@@ -134,7 +133,7 @@ class Renderer {
 	 * - COLOR_ATTACHMENT0: an RGBA renderbuffer holding the visible image.
 	 * - COLOR_ATTACHMENT1: an R16I texture where each pixel stores the id of the
 	 *   object drawn there. Reading this texture back on click is how GPU
-	 *   picking selects an object (see Picker).
+	 *   picking selects an object (see pick).
 	 *
 	 * Call once after the canvas is attached, before the first draw.
 	 *
@@ -217,7 +216,7 @@ class Renderer {
 		this._gl.enable(this._gl.CULL_FACE);
 		this._gl.cullFace(this._gl.BACK);
 		this.setClearColor(backgroundColor);
-		this.enable(this._gl.DEPTH_TEST);
+		this._gl.enable(this._gl.DEPTH_TEST);
 		this._gl.enable(this._gl.BLEND);
 		this._gl.blendFunc(this._gl.SRC_ALPHA, this._gl.ONE_MINUS_SRC_ALPHA);
 
@@ -226,55 +225,27 @@ class Renderer {
 			1,
 			1
 		);
-		this.createTexture(this._defaultTexture);
-		this.loadTexture(this._defaultTexture);
+		this.ensureTexture(this._defaultTexture);
 	}
 
 	/**
 	 * Lazily uploads GPU resources (vertex/index buffers, shader programs,
-	 * textures) for any renderable that has not been uploaded yet. Buffers and
-	 * programs track this with `created` flags, so this is cheap to call every
-	 * frame and automatically picks up entities added at runtime.
+	 * textures) for any renderable that has not been uploaded yet. The resource
+	 * cache tracks what already exists, so this is cheap to call every frame
+	 * and automatically picks up entities added at runtime.
 	 *
 	 * @param renderables - The renderables whose GPU resources to upload
 	 */
-	ensureResources(renderables: Renderable[]): void {
+	private ensureResources(renderables: Renderable[]): void {
 		renderables.forEach((obj: Renderable) => {
-			if (!obj.vertexBuffer.created) {
-				this.createVertexBuffer(obj.vertexBuffer);
-			}
-
-			if (!obj.indexBuffer.created) {
-				this.createIndexBuffer(obj.indexBuffer);
-			}
-
-			if (!obj.material.program.created) {
-				this.createShaderProgram(obj.material.program);
-			}
-
-			if (!obj.vertexBuffer.vaoCreated) {
-				this.createVertexArray(
-					obj.vertexBuffer,
-					obj.indexBuffer,
-					obj.material.program
-				);
-			}
+			this.ensureIndexBuffer(obj.indexBuffer);
+			this.ensureVertexBuffer(obj.vertexBuffer, obj.indexBuffer);
+			this.ensureProgram(obj.material.program);
 
 			// create and load in all the textures
 			obj.material.properties.forEach((prop: MaterialProperty) => {
-				switch (prop.type) {
-					case MaterialPropertyType.TEXTURE: {
-						const texture: Texture = prop.value as Texture;
-						if (!texture.created) {
-							this.createTexture(texture);
-						}
-
-						if (!texture.loaded) {
-							this.loadTexture(texture);
-						}
-
-						break;
-					}
+				if (prop.type === MaterialPropertyType.TEXTURE) {
+					this.ensureTexture(prop.value as Texture);
 				}
 			});
 		});
@@ -283,7 +254,7 @@ class Renderer {
 	/**
 	 * Draws a list of renderables to the screen, lit by the given camera, ambient
 	 * light, and point lights. The list is produced by the RenderSystem from the
-	 * ECS world; the Renderer itself is world-agnostic.
+	 * ECS world; the backend itself is world-agnostic.
 	 *
 	 * @param renderables - What to draw this frame - includes editor-only
 	 * things like the transform gizmo's handles, which are real depth-tested
@@ -318,12 +289,16 @@ class Renderer {
 		this.drawRenderables(renderables, cam, ambientLight, lightPositions);
 
 		if (outlineRenderables.length > 0) {
-			// cullFace is BACK everywhere else in this renderer (set once in
+			// cullFace is BACK everywhere else in this backend (set once in
 			// initScene and never toggled) - flipping to FRONT for just this
 			// pass is what turns "the selected mesh, scaled up 3%" into a rim
 			// instead of a fully solid oversized copy: with front faces
 			// culled, only the backfaces poking out past the real mesh survive
 			// the depth test against it.
+			//
+			// This is exactly the kind of mid-frame state flip WebGPU has no
+			// equivalent for - see PipelineCache.ts, where the same effect
+			// needs a whole second pipeline object.
 			this._gl.cullFace(this._gl.FRONT);
 			this.drawRenderables(
 				outlineRenderables,
@@ -335,7 +310,7 @@ class Renderer {
 		}
 
 		// Copy the shaded color image onto the visible canvas. The id-texture
-		// (attachment 1) stays on the GPU for the Picker to read on demand.
+		// (attachment 1) stays on the GPU for pick() to read on demand.
 		this.blitColorToCanvas();
 
 		this._gl.bindFramebuffer(this._gl.FRAMEBUFFER, null);
@@ -345,7 +320,7 @@ class Renderer {
 	 * Draws one list of renderables into whichever framebuffer is currently
 	 * bound, lit by the given camera/ambient/point lights. Shared by the main
 	 * scene pass and the overlay pass in render() above - the two differ only
-	 * in depth-test state, which the caller controls.
+	 * in cull-face state, which the caller controls.
 	 */
 	private drawRenderables(
 		renderables: Renderable[],
@@ -354,20 +329,16 @@ class Renderer {
 		lightPositions: vec3[]
 	): void {
 		renderables.forEach((obj: Renderable) => {
+			const program = this._resources.requireProgram(
+				obj.material.program
+			).program;
+
 			this.bindRenderable(obj);
 
-			const shaderProgram: ShaderProgram = obj.material.program;
-
-			this.setUniform1i(shaderProgram, "u_objectId", obj.id);
-
-			this.setUniform4Mat(
-				shaderProgram,
-				"u_perspective",
-				cam.perspectiveMatrix
-			);
-
-			this.setUniform4Mat(shaderProgram, "u_transform", obj.transform);
-			this.setUniform4Mat(shaderProgram, "u_view", cam.viewMatrix);
+			this.setUniform1i(program, "u_objectId", obj.id);
+			this.setUniform4Mat(program, "u_perspective", cam.perspectiveMatrix);
+			this.setUniform4Mat(program, "u_transform", obj.transform);
+			this.setUniform4Mat(program, "u_view", cam.viewMatrix);
 
 			// Normals need the inverse-transpose of the model matrix so they
 			// stay perpendicular to the surface under non-uniform scaling.
@@ -377,29 +348,22 @@ class Renderer {
 			// harmless since such an object is degenerate and invisible.
 			const normalMatrix = mat3.create();
 			mat3.normalFromMat4(normalMatrix, obj.transform);
-			this.setUniform3Mat(shaderProgram, "u_normalMatrix", normalMatrix);
+			this.setUniform3Mat(program, "u_normalMatrix", normalMatrix);
 
 			// setup lights. The shader declares a fixed-size array, so ignore any
 			// lights past it rather than writing uniforms that do not exist.
 			const visibleLights = lightPositions.slice(0, MAX_LIGHTS);
-			this.setUniform1i(
-				shaderProgram,
-				"u_numLights",
-				visibleLights.length
-			);
-			this.setUniform3f(shaderProgram, "u_ambientLight", ambientLight);
+			this.setUniform1i(program, "u_numLights", visibleLights.length);
+			this.setUniform3f(program, "u_ambientLight", ambientLight);
 			visibleLights.forEach((position: vec3, i: number) => {
-				this.setPointLight(
-					shaderProgram,
-					`u_lightList[${i}]`,
-					position
-				);
+				this.setUniform3f(program, `u_lightList[${i}].pos`, position);
 			});
 
-			this.drawElements(
+			this._gl.drawElements(
 				this._gl.TRIANGLES,
 				obj.indexBuffer.length,
-				this._gl.UNSIGNED_INT
+				this._gl.UNSIGNED_INT,
+				0
 			);
 			this.unbindRenderable();
 		});
@@ -417,7 +381,6 @@ class Renderer {
 		this._gl.bindFramebuffer(this._gl.READ_FRAMEBUFFER, this._frameBuffer);
 		this._gl.readBuffer(this._gl.COLOR_ATTACHMENT0);
 		this._gl.bindFramebuffer(this._gl.DRAW_FRAMEBUFFER, null);
-
 		this._gl.blitFramebuffer(
 			0,
 			0,
@@ -432,95 +395,112 @@ class Renderer {
 		);
 	}
 
-	get context(): WebGL2RenderingContext {
-		return this._gl;
-	}
-
-	/**
-	 * The offscreen framebuffer the scene is rendered into. Its second color
-	 * attachment holds the object-id texture the Picker reads.
-	 */
-	get frameBuffer(): WebGLFramebuffer {
-		return this._frameBuffer;
-	}
-
 	/**
 	 * The pixel dimensions of the framebuffer's attachments (including the
-	 * id-texture the Picker samples).
+	 * id-texture `pick` samples).
 	 */
 	get canvasSize(): vec2 {
 		return this._canvasSize;
 	}
 
 	/**
-	 * Draws the binded vertex buffer using the binded index buffer and shader program
+	 * Resolves a click to the object drawn under it using GPU picking.
 	 *
-	 * @param mode - The drawing mode in WebGL (usually gl.TRIANGLES)
-	 * @param count - The number of elements to draw
-	 * @param type - The data type of the binded data to draw
+	 * Every frame the scene writes two things into one framebuffer via multiple
+	 * render targets: the visible color image, and each object's integer id in a
+	 * second R16I "id-texture" attachment. Picking is then just reading back the
+	 * single id-texture pixel under the cursor - no ray-casting or CPU-side
+	 * geometry math required. The read samples the last frame that was drawn, so
+	 * it never triggers a re-render.
+	 *
+	 * The id-texture is cleared to -1, reported here as null (the background).
+	 *
+	 * WebGL can do this synchronously, but the returned promise is already
+	 * resolved: `RenderBackend.pick` is async because WebGPU's readback can only
+	 * be asynchronous, and one shared shape beats two (see RenderBackend.ts).
+	 *
+	 * @param x - X coordinate in id-texture pixels, from the left
+	 * @param y - Y coordinate in id-texture pixels, from the top
+	 * @returns - The picked object id, or null for background / on failure
 	 */
-	drawElements(mode: number, count: number, type: number): void {
-		this._gl.drawElements(mode, count, type, 0);
+	async pick(x: number, y: number): Promise<number | null> {
+		const gl = this._gl;
+
+		// WebGL's framebuffer origin is the bottom-left, but DOM coordinates
+		// start at the top-left, so flip Y before reading.
+		const pixelX = Math.floor(x);
+		const pixelY = Math.floor(this._canvasSize[1] - 1 - y);
+
+		if (
+			pixelX < 0 ||
+			pixelY < 0 ||
+			pixelX >= this._canvasSize[0] ||
+			pixelY >= this._canvasSize[1]
+		) {
+			return null;
+		}
+
+		gl.bindFramebuffer(gl.FRAMEBUFFER, this._frameBuffer);
+		gl.readBuffer(gl.COLOR_ATTACHMENT1);
+
+		// The read format/type must match the R16I id-texture. Query what the
+		// implementation actually supports so we can fail gracefully on
+		// platforms that can't read an integer render target.
+		const format = gl.getParameter(gl.IMPLEMENTATION_COLOR_READ_FORMAT);
+		const type = gl.getParameter(gl.IMPLEMENTATION_COLOR_READ_TYPE);
+
+		let id: number | null = null;
+		if (format === gl.RED_INTEGER) {
+			const data =
+				type === gl.INT ? new Int32Array(1) : new Int16Array(1);
+			gl.readPixels(pixelX, pixelY, 1, 1, format, type, data);
+
+			if (gl.getError() === gl.NO_ERROR) {
+				// -1 is the clear value: nothing was drawn here. Every real
+				// pick is an entity id, always positive (World hands those
+				// out starting at 1) - the gizmo's handles are real entities
+				// like anything else now (see GizmoAxis.ts's GizmoHandle),
+				// with no reserved id range of their own.
+				id = data[0] === -1 ? null : data[0];
+			} else {
+				console.warn("GPU picking: failed to read the id-texture.");
+			}
+		} else {
+			console.warn(
+				"GPU picking unsupported: this platform cannot read the " +
+					"integer id-texture."
+			);
+		}
+
+		gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+		return id;
 	}
 
 	/**
-	 * Creates a vertex buffer in the WebGL context
+	 * Uploads a vertex buffer and builds its vertex array object, if this
+	 * backend has not already done so.
 	 *
-	 * @param buffer - The vertex buffer to create
+	 * @param buffer - The vertex buffer to upload
+	 * @param indexBuffer - The index buffer whose binding the VAO captures
 	 */
-	createVertexBuffer(buffer: VertexBuffer): void {
-		buffer.buffer = this.assertCreated(this._gl.createBuffer(), "buffer");
-		buffer.created = true;
-		this.bindVertexBuffer(buffer);
+	private ensureVertexBuffer(
+		buffer: VertexBuffer,
+		indexBuffer: IndexBuffer
+	): void {
+		if (this._resources.vertexBuffers.has(buffer)) {
+			return;
+		}
+
+		const glBuffer = this.assertCreated(this._gl.createBuffer(), "buffer");
+		this._gl.bindBuffer(this._gl.ARRAY_BUFFER, glBuffer);
 		this._gl.bufferData(
 			this._gl.ARRAY_BUFFER,
 			buffer.vertices,
 			this._gl.STATIC_DRAW
 		);
-	}
 
-	/**
-	 * Binds a vertex buffer to the ARRAY_BUFFER target
-	 *
-	 * @param buffer - The vertex buffer to bind
-	 */
-	bindVertexBuffer(buffer: VertexBuffer): void {
-		if (!buffer.created) {
-			throw new Error(
-				"Trying to bind vertex buffer that hasn't been created yet"
-			);
-		}
-
-		this._gl.bindBuffer(this._gl.ARRAY_BUFFER, buffer.buffer);
-	}
-
-	/**
-	 * Unbinds a vertex buffer to the ARRAY_BUFFER target
-	 */
-	unbindVertexBuffer(): void {
-		this._gl.bindBuffer(this._gl.ARRAY_BUFFER, null);
-	}
-
-	/**
-	 * Frees a vertex buffer's GPU memory and marks it uncreated, so it would be
-	 * re-uploaded if ever reused. Call when the mesh it belongs to is no longer
-	 * referenced by anything in the world (e.g. an asset is unloaded).
-	 *
-	 * Also frees this buffer's vertex array object, if it has one - a VAO
-	 * captures this exact buffer's attribute bindings, so it becomes garbage
-	 * the moment the buffer it describes is gone.
-	 *
-	 * @param buffer - The vertex buffer to delete
-	 */
-	deleteVertexBuffer(buffer: VertexBuffer): void {
-		if (buffer.vaoCreated) {
-			this.deleteVertexArray(buffer);
-		}
-		if (!buffer.created) {
-			return;
-		}
-		this._gl.deleteBuffer(buffer.buffer);
-		buffer.created = false;
+		const vao = this.createVertexArray(glBuffer, buffer.layout, indexBuffer);
+		this._resources.vertexBuffers.set(buffer, { buffer: glBuffer, vao });
 	}
 
 	/**
@@ -537,308 +517,249 @@ class Renderer {
 	 * shader bug. It only went unnoticed before texturing because every mesh
 	 * happened to share the identical `[a_position, a_normal]` layout.
 	 *
-	 * @param vertexBuffer - The vertex buffer to capture attribute state for
+	 * Note that no shader program is involved. Attribute locations are pinned
+	 * in attributeLocations.ts rather than looked up per-program, so a mesh's
+	 * attribute setup is valid against *any* program - which is also what lets
+	 * the WGSL shaders address the same slots by number.
+	 *
+	 * @param glBuffer - The uploaded vertex data
+	 * @param layout - How that data divides into named attributes
 	 * @param indexBuffer - The index buffer to capture the binding of
-	 * @param shaderProgram - The shader program whose attribute locations the
-	 * layout is resolved against (all materials currently share one program,
-	 * so this is safe to bake in at VAO-creation time)
+	 * @returns - The vertex array object
 	 */
-	createVertexArray(
-		vertexBuffer: VertexBuffer,
-		indexBuffer: IndexBuffer,
-		shaderProgram: ShaderProgram
-	): void {
-		vertexBuffer.vao = this.assertCreated(
+	private createVertexArray(
+		glBuffer: WebGLBuffer,
+		layout: VertexBufferLayout,
+		indexBuffer: IndexBuffer
+	): WebGLVertexArrayObject {
+		const vao = this.assertCreated(
 			this._gl.createVertexArray(),
 			"vertex array"
 		);
-		this._gl.bindVertexArray(vertexBuffer.vao);
-		this.bindVertexBuffer(vertexBuffer);
-		this.setVertexAttributes(shaderProgram, vertexBuffer.layout);
-		this.bindIndexBuffer(indexBuffer);
+		this._gl.bindVertexArray(vao);
+		this._gl.bindBuffer(this._gl.ARRAY_BUFFER, glBuffer);
+		this.setVertexAttributes(layout);
+		this._gl.bindBuffer(
+			this._gl.ELEMENT_ARRAY_BUFFER,
+			this.ensureIndexBuffer(indexBuffer)
+		);
 		this._gl.bindVertexArray(null);
-		vertexBuffer.vaoCreated = true;
+		return vao;
 	}
 
 	/**
-	 * Frees a vertex array object's GPU memory and marks it uncreated.
+	 * Uploads an index buffer if this backend has not already done so.
 	 *
-	 * @param vertexBuffer - The vertex buffer whose VAO to delete
+	 * @param buffer - The index buffer to upload
+	 * @returns - The GPU buffer holding the indices
 	 */
-	deleteVertexArray(vertexBuffer: VertexBuffer): void {
-		if (!vertexBuffer.vaoCreated) {
-			return;
+	private ensureIndexBuffer(buffer: IndexBuffer): WebGLBuffer {
+		const existing = this._resources.indexBuffers.get(buffer);
+		if (existing) {
+			return existing;
 		}
-		this._gl.deleteVertexArray(vertexBuffer.vao);
-		vertexBuffer.vaoCreated = false;
-	}
 
-	/**
-	 * Creates a index buffer in the WebGL context
-	 *
-	 * @param buffer - The index buffer to create
-	 */
-	createIndexBuffer(buffer: IndexBuffer): void {
-		buffer.buffer = this.assertCreated(this._gl.createBuffer(), "buffer");
-		buffer.created = true;
-		this.bindIndexBuffer(buffer);
+		const glBuffer = this.assertCreated(this._gl.createBuffer(), "buffer");
+		this._gl.bindBuffer(this._gl.ELEMENT_ARRAY_BUFFER, glBuffer);
 		this._gl.bufferData(
 			this._gl.ELEMENT_ARRAY_BUFFER,
 			buffer.indices,
 			this._gl.STATIC_DRAW
 		);
+		this._resources.indexBuffers.set(buffer, glBuffer);
+		return glBuffer;
 	}
 
 	/**
-	 * Binds an index buffer to the ELEMENT_ARRAY_BUFFER target
+	 * Frees a vertex buffer's GPU memory - and its vertex array object, which
+	 * describes this exact buffer and becomes garbage the moment the buffer is
+	 * gone. Call when the mesh it belongs to is no longer referenced by
+	 * anything in the world (e.g. an asset is unloaded).
 	 *
-	 * @param buffer - The index buffer to bind
+	 * @param buffer - The vertex buffer to delete
 	 */
-	bindIndexBuffer(buffer: IndexBuffer): void {
-		if (!buffer.created) {
-			throw new Error(
-				"Trying to bind index buffer that hasn't been created yet"
-			);
+	deleteVertexBuffer(buffer: VertexBuffer): void {
+		const resources = this._resources.vertexBuffers.get(buffer);
+		if (!resources) {
+			return;
 		}
-
-		this._gl.bindBuffer(this._gl.ELEMENT_ARRAY_BUFFER, buffer.buffer);
+		this._gl.deleteVertexArray(resources.vao);
+		this._gl.deleteBuffer(resources.buffer);
+		this._resources.vertexBuffers.delete(buffer);
 	}
 
 	/**
-	 * Unbinds an index buffer to the ELEMENT_ARRAY_BUFFER target
-	 */
-	unbindIndexBuffer(): void {
-		this._gl.bindBuffer(this._gl.ELEMENT_ARRAY_BUFFER, null);
-	}
-
-	/**
-	 * Frees an index buffer's GPU memory and marks it uncreated.
+	 * Frees an index buffer's GPU memory.
 	 *
 	 * @param buffer - The index buffer to delete
 	 */
 	deleteIndexBuffer(buffer: IndexBuffer): void {
-		if (!buffer.created) {
+		const glBuffer = this._resources.indexBuffers.get(buffer);
+		if (!glBuffer) {
 			return;
 		}
-		this._gl.deleteBuffer(buffer.buffer);
-		buffer.created = false;
+		this._gl.deleteBuffer(glBuffer);
+		this._resources.indexBuffers.delete(buffer);
 	}
 
 	/**
-	 * Creates a shader in the WebGL context
+	 * Compiles one shader stage.
 	 *
-	 * @param shader - The shader to create
+	 * @param shader - The shader stage to compile
+	 * @returns - The compiled GPU shader
 	 */
-	createShader(shader: Shader): void {
+	private compileShader(shader: Shader): WebGLShader {
 		const shaderType =
 			shader.type === ShaderType.FRAGMENT
 				? this._gl.FRAGMENT_SHADER
 				: this._gl.VERTEX_SHADER;
 
-		shader.shader = this.assertCreated(
+		const glShader = this.assertCreated(
 			this._gl.createShader(shaderType),
 			"shader"
 		);
-		this._gl.shaderSource(shader.shader, shader.source);
-		this._gl.compileShader(shader.shader);
+		this._gl.shaderSource(glShader, shader.glsl);
+		this._gl.compileShader(glShader);
 
-		shader.created = true;
+		return glShader;
 	}
 
 	/**
-	 * Creates a shader program in the WebGL context
+	 * Compiles and links a shader program if this backend has not already done
+	 * so.
 	 *
-	 * @param shaderProgram - The shader program to create
+	 * Attribute locations are bound explicitly from attributeLocations.ts
+	 * *before* linking, rather than queried afterward with `getAttribLocation`.
+	 * That is what lets a mesh's VAO be built without reference to any
+	 * particular program, and keeps WebGL agreeing with WGSL's numeric
+	 * `@location` slots.
+	 *
+	 * @param shaderProgram - The shader program to link
 	 */
-	createShaderProgram(shaderProgram: ShaderProgram): void {
-		if (!shaderProgram.vertexShader.created) {
-			this.createShader(shaderProgram.vertexShader);
+	private ensureProgram(shaderProgram: ShaderProgram): void {
+		if (this._resources.programs.has(shaderProgram)) {
+			return;
 		}
 
-		if (!shaderProgram.fragmentShader.created) {
-			this.createShader(shaderProgram.fragmentShader);
-		}
-
-		shaderProgram.program = this.assertCreated(
+		const vertexShader = this.compileShader(shaderProgram.vertexShader);
+		const fragmentShader = this.compileShader(shaderProgram.fragmentShader);
+		const program = this.assertCreated(
 			this._gl.createProgram(),
 			"shader program"
 		);
 
-		this._gl.attachShader(
-			shaderProgram.program,
-			shaderProgram.vertexShader.shader
-		);
-		this._gl.attachShader(
-			shaderProgram.program,
-			shaderProgram.fragmentShader.shader
-		);
+		this._gl.attachShader(program, vertexShader);
+		this._gl.attachShader(program, fragmentShader);
 
-		this._gl.linkProgram(shaderProgram.program);
-		this._gl.useProgram(shaderProgram.program);
+		Object.entries(ATTRIBUTE_LOCATIONS).forEach(([name, location]) => {
+			this._gl.bindAttribLocation(program, location, name);
+		});
 
-		shaderProgram.created = true;
+		this._gl.linkProgram(program);
+
+		if (!this._gl.getProgramParameter(program, this._gl.LINK_STATUS)) {
+			const log = this._gl.getProgramInfoLog(program);
+			const vertexLog = this._gl.getShaderInfoLog(vertexShader);
+			const fragmentLog = this._gl.getShaderInfoLog(fragmentShader);
+			throw new Error(
+				`Shader program failed to link: ${log}\n` +
+					`vertex: ${vertexLog}\nfragment: ${fragmentLog}`
+			);
+		}
+
+		this._resources.programs.set(shaderProgram, {
+			program,
+			vertexShader,
+			fragmentShader,
+		});
 	}
 
 	/**
-	 * Selects a shader program to use when rendering an object
-	 *
-	 * @param shaderProgram - The shader program to use
-	 */
-	useProgram(shaderProgram: ShaderProgram): void {
-		this._gl.useProgram(shaderProgram.program);
-	}
-
-	/**
-	 * Stop using the current shader program
-	 */
-	dropProgram(): void {
-		this._gl.useProgram(null);
-	}
-
-	/**
-	 * Deletes a linked shader program and its two compiled shader stages, and
-	 * marks all three uncreated. Call when nothing in the world references the
-	 * program anymore (e.g. the last user of a material is unloaded).
+	 * Deletes a linked shader program and its two compiled stages. Call when
+	 * nothing in the world references the program anymore (e.g. the last user
+	 * of a material is unloaded).
 	 *
 	 * @param shaderProgram - The shader program to delete
 	 */
 	deleteShaderProgram(shaderProgram: ShaderProgram): void {
-		if (shaderProgram.created) {
-			this._gl.deleteProgram(shaderProgram.program);
-			shaderProgram.created = false;
+		const resources = this._resources.programs.get(shaderProgram);
+		if (!resources) {
+			return;
 		}
-		[shaderProgram.vertexShader, shaderProgram.fragmentShader].forEach(
-			(shader: Shader) => {
-				if (shader.created) {
-					this._gl.deleteShader(shader.shader);
-					shader.created = false;
-				}
-			}
-		);
+		this._gl.deleteProgram(resources.program);
+		this._gl.deleteShader(resources.vertexShader);
+		this._gl.deleteShader(resources.fragmentShader);
+		this._resources.programs.delete(shaderProgram);
 	}
 
 	/**
-	 * Sets an integer uniform in a shader program
+	 * Sets an integer uniform in a shader program.
 	 *
-	 * @param shaderProgram - The shader program to set the integer in
-	 * @param name - The name of the integer uniform
-	 * @param int - The value of the integer uniform
+	 * getUniformLocation returns null when the uniform is unused/optimized out;
+	 * the gl.uniform* calls accept null as a harmless no-op. That applies to
+	 * every setUniform* method here.
 	 */
-	setUniform1i(
-		shaderProgram: ShaderProgram,
+	private setUniform1i(
+		program: WebGLProgram,
 		name: string,
 		int: number
 	): void {
-		// getUniformLocation returns null when the uniform is unused/optimized
-		// out; the gl.uniform* calls accept null as a harmless no-op.
-		const location = this._gl.getUniformLocation(
-			shaderProgram.program,
-			name
-		);
-		this._gl.uniform1i(location, int);
+		this._gl.uniform1i(this._gl.getUniformLocation(program, name), int);
 	}
 
-	/**
-	 * Sets an vec3 uniform in a shader program
-	 *
-	 * @param shaderProgram - The shader program to set the vec4 in
-	 * @param name - The name of the vec3 uniform
-	 * @param int - The value of the vec3 uniform
-	 */
-	setUniform3f(shaderProgram: ShaderProgram, name: string, vec3: vec3): void {
-		// getUniformLocation returns null when the uniform is unused/optimized
-		// out; the gl.uniform* calls accept null as a harmless no-op.
-		const location = this._gl.getUniformLocation(
-			shaderProgram.program,
-			name
-		);
-		this._gl.uniform3fv(location, vec3);
-	}
-
-	/**
-	 * Sets an vec4 uniform in a shader program
-	 *
-	 * @param shaderProgram - The shader program to set the vec4 in
-	 * @param name - The name of the vec4 uniform
-	 * @param int - The value of the vec4 uniform
-	 */
-	setUniform4f(shaderProgram: ShaderProgram, name: string, vec4: vec4): void {
-		// getUniformLocation returns null when the uniform is unused/optimized
-		// out; the gl.uniform* calls accept null as a harmless no-op.
-		const location = this._gl.getUniformLocation(
-			shaderProgram.program,
-			name
-		);
-		this._gl.uniform4fv(location, vec4);
-	}
-
-	/**
-	 * Sets an mat4 uniform in a shader program
-	 *
-	 * @param shaderProgram - The shader program to set the mat4 in
-	 * @param name - The name of the mat4 uniform
-	 * @param int - The value of the mat4 uniform
-	 */
-	setUniform4Mat(
-		shaderProgram: ShaderProgram,
+	/** Sets a vec3 uniform in a shader program. */
+	private setUniform3f(
+		program: WebGLProgram,
 		name: string,
-		mat4: mat4
+		value: vec3
 	): void {
-		// getUniformLocation returns null when the uniform is unused/optimized
-		// out; the gl.uniform* calls accept null as a harmless no-op.
-		const location = this._gl.getUniformLocation(
-			shaderProgram.program,
-			name
-		);
-		this._gl.uniformMatrix4fv(location, false, mat4);
+		this._gl.uniform3fv(this._gl.getUniformLocation(program, name), value);
 	}
 
-	/**
-	 * Sets a mat3 uniform in a shader program
-	 *
-	 * @param shaderProgram - The shader program to set the mat3 in
-	 * @param name - The name of the mat3 uniform
-	 * @param matrix - The value of the mat3 uniform
-	 */
-	setUniform3Mat(
-		shaderProgram: ShaderProgram,
+	/** Sets a vec4 uniform in a shader program. */
+	private setUniform4f(
+		program: WebGLProgram,
 		name: string,
-		matrix: mat3
+		value: vec4
 	): void {
-		// getUniformLocation returns null when the uniform is unused/optimized
-		// out; the gl.uniform* calls accept null as a harmless no-op.
-		const location = this._gl.getUniformLocation(
-			shaderProgram.program,
-			name
+		this._gl.uniform4fv(this._gl.getUniformLocation(program, name), value);
+	}
+
+	/** Sets a mat4 uniform in a shader program. */
+	private setUniform4Mat(
+		program: WebGLProgram,
+		name: string,
+		value: mat4
+	): void {
+		this._gl.uniformMatrix4fv(
+			this._gl.getUniformLocation(program, name),
+			false,
+			value
 		);
-		this._gl.uniformMatrix3fv(location, false, matrix);
+	}
+
+	/** Sets a mat3 uniform in a shader program. */
+	private setUniform3Mat(
+		program: WebGLProgram,
+		name: string,
+		value: mat3
+	): void {
+		this._gl.uniformMatrix3fv(
+			this._gl.getUniformLocation(program, name),
+			false,
+			value
+		);
 	}
 
 	/**
-	 * Sets the data in a point light in a shader program
-	 *
-	 * @param shaderProgram - The shader program to set the point light in
-	 * @param name - The name of the point light
-	 * @param position - The world-space position of the point light
-	 */
-	setPointLight(shaderProgram: ShaderProgram, name: string, position: vec3) {
-		this.setUniform3f(shaderProgram, `${name}.pos`, position);
-	}
-
-	/**
-	 * Defines the vertex attributes in a vertex buffer layout in a shader
-	 * program. Called once per mesh, while its VAO is bound (see
+	 * Points the pinned attribute slots at their slices of the currently bound
+	 * vertex buffer. Called once per mesh, while its VAO is bound (see
 	 * createVertexArray) - the VAO captures the resulting attribute pointers
 	 * and enables, so this never needs to run again for that mesh.
 	 *
-	 * @param shaderProgram - The shader program to add the vertex attributes
-	 * @param vertexLayout - The layout of the attributes to define in the shader program
+	 * @param vertexLayout - The layout of the attributes to wire up
 	 */
-	setVertexAttributes(
-		shaderProgram: ShaderProgram,
-		vertexLayout: VertexBufferLayout
-	): void {
-		this.useProgram(shaderProgram);
+	private setVertexAttributes(vertexLayout: VertexBufferLayout): void {
 		let offset = 0;
 		const stride: number = vertexLayout.layout
 			.map((attribute: VertexLayout) => {
@@ -849,75 +770,55 @@ class Renderer {
 		vertexLayout.layout.forEach((attribute: VertexLayout) => {
 			const { name, size, type, normalized } = attribute;
 			const glType: number = this.toGLType(type);
-			const location: number = this._gl.getAttribLocation(
-				shaderProgram.program,
-				name
-			);
+			const location: number = attributeLocation(name);
 
-			if (location >= 0) {
-				this._gl.vertexAttribPointer(
-					location,
-					size,
-					glType,
-					normalized,
-					stride,
-					offset
-				);
-				this._gl.enableVertexAttribArray(location);
-			}
+			this._gl.vertexAttribPointer(
+				location,
+				size,
+				glType,
+				normalized,
+				stride,
+				offset
+			);
+			this._gl.enableVertexAttribArray(location);
 
 			offset += this.getTypeSize(type) * size;
 		});
 	}
 
 	/**
-	 * Creates a texture within the WebGL context
+	 * Uploads a texture's pixels if this backend has not already done so.
 	 *
-	 * @param texture - The texture to create
+	 * @param texture - The texture to upload
+	 * @returns - The GPU texture
 	 */
-	createTexture(texture: Texture): void {
-		texture.texture = this.assertCreated(
-			this._gl.createTexture(),
-			"texture"
-		);
-		texture.created = true;
-	}
+	private ensureTexture(texture: Texture): WebGLTexture {
+		const existing = this._resources.textures.get(texture);
+		if (existing && existing.loaded) {
+			return existing.texture;
+		}
 
-	/**
-	 * Binds a texture within a WebGL context
-	 *
-	 * @param texture - The texture to bind
-	 */
-	bindTexture(texture: Texture): void {
-		this._gl.bindTexture(this._gl.TEXTURE_2D, texture.texture);
-	}
+		const glTexture =
+			existing?.texture ??
+			this.assertCreated(this._gl.createTexture(), "texture");
 
-	/**
-	 * Loads a texture to be used in a shader program
-	 *
-	 * @param texture - The texture to load
-	 */
-	loadTexture(texture: Texture): void {
 		const level = 0;
 		const internalFormat = this._gl.RGBA;
-		const width = texture.width;
-		const height = texture.height;
 		const border = 0;
 		const srcFormat = this._gl.RGBA;
 		const srcType = this._gl.UNSIGNED_BYTE;
-		const data = texture.data;
 
-		this._gl.bindTexture(this._gl.TEXTURE_2D, texture.texture);
+		this._gl.bindTexture(this._gl.TEXTURE_2D, glTexture);
 		this._gl.texImage2D(
 			this._gl.TEXTURE_2D,
 			level,
 			internalFormat,
-			width,
-			height,
+			texture.width,
+			texture.height,
 			border,
 			srcFormat,
 			srcType,
-			data
+			texture.data
 		);
 		this._gl.generateMipmap(this._gl.TEXTURE_2D);
 
@@ -947,62 +848,74 @@ class Renderer {
 			this._gl.LINEAR
 		);
 
-		texture.loaded = true;
+		this._resources.textures.set(texture, {
+			texture: glTexture,
+			loaded: true,
+		});
+		return glTexture;
 	}
 
 	/**
-	 * Deletes a texture's GPU memory and marks it uncreated/unloaded.
+	 * Frees a texture's GPU memory.
 	 *
 	 * @param texture - The texture to delete
 	 */
 	deleteTexture(texture: Texture): void {
-		if (!texture.created) {
+		const resources = this._resources.textures.get(texture);
+		if (!resources) {
 			return;
 		}
-		this._gl.deleteTexture(texture.texture);
-		texture.created = false;
-		texture.loaded = false;
+		this._gl.deleteTexture(resources.texture);
+		this._resources.textures.delete(texture);
 	}
 
 	/**
-	 * Gets a material ready to be used in a shader program. It prepares the material properties to be used in the shader program.
+	 * Gets a material ready to be used in a shader program: selects its program
+	 * and uploads its properties as uniforms.
 	 *
-	 * @param material - The material to set to be used in a shader program
+	 * @param material - The material to set up
 	 */
-	setMaterial(material: Material) {
-		const shaderProgram: ShaderProgram = material.program;
-		this.useProgram(shaderProgram);
+	private setMaterial(material: Material): void {
+		const program = this._resources.requireProgram(material.program).program;
+		this._gl.useProgram(program);
 
 		// Always bind the default white texture to TEXTURE0 first, so
 		// u_texture is never left pointing at whatever the previously-drawn
 		// material happened to bind. A material with its own TEXTURE property
 		// overwrites this binding below.
 		this._gl.activeTexture(this._gl.TEXTURE0);
-		this.bindTexture(this._defaultTexture);
-		this.setUniform1i(shaderProgram, "u_texture", 0);
+		this._gl.bindTexture(
+			this._gl.TEXTURE_2D,
+			this.ensureTexture(this._defaultTexture)
+		);
+		this.setUniform1i(program, "u_texture", 0);
 
 		material.properties.forEach((property: MaterialProperty) => {
 			const { name, value } = property;
 			switch (property.type) {
 				case MaterialPropertyType.VEC4:
-					this.setUniform4f(shaderProgram, name, value as vec4);
+					this.setUniform4f(program, name, value as vec4);
 					break;
 
 				case MaterialPropertyType.MAT4:
-					this.setUniform4Mat(shaderProgram, name, value as mat4);
+					this.setUniform4Mat(program, name, value as mat4);
 					break;
 
 				case MaterialPropertyType.TEXTURE:
 					this._gl.activeTexture(this._gl.TEXTURE0);
-					this.bindTexture(value as Texture);
-					this.setUniform1i(shaderProgram, name, 0);
+					this._gl.bindTexture(
+						this._gl.TEXTURE_2D,
+						this.ensureTexture(value as Texture)
+					);
+					this.setUniform1i(program, name, 0);
 					break;
 			}
 		});
 	}
 
 	/**
-	 * Sets the color that the renderer sets the screen to before rendering the scene on top of it.
+	 * Sets the color that the backend clears the screen to before rendering the
+	 * scene on top of it.
 	 *
 	 * @param color - The clear color value
 	 */
@@ -1021,7 +934,7 @@ class Renderer {
 	 * color image is blitted onto it (see blitColorToCanvas), fully overwriting
 	 * the previous frame.
 	 */
-	clear(): void {
+	private clear(): void {
 		this._gl.bindFramebuffer(this._gl.FRAMEBUFFER, this._frameBuffer);
 		this._gl.clearBufferfv(
 			this._gl.COLOR,
@@ -1038,36 +951,17 @@ class Renderer {
 	}
 
 	/**
-	 * Sets flags in WebGL to define different behavior
-	 *
-	 * @param flag - The flag value to set in WebGL
-	 */
-	enable(flag: number): void {
-		this._gl.enable(flag);
-	}
-
-	/**
-	 * Sets the size of the viewport to the given width and height
-	 *
-	 * @param width - The width of the viewport
-	 * @param height - The height of the viewport
-	 */
-	setViewport(width: number, height: number): void {
-		this._gl.viewport(0, 0, width, height);
-	}
-
-	/**
 	 * Resizes the offscreen framebuffer and its attachments to a new pixel size.
 	 *
-	 * Changing the GL viewport alone (setViewport) is not enough: the color, id,
-	 * and depth attachments were allocated at a fixed size in initScene, so
-	 * without reallocating them the rendered image and the picking id-texture
-	 * keep their old resolution and object picking drifts once the canvas
-	 * changes size. Renderbuffers can be re-storaged in place; the id texture was
-	 * created with immutable storage (texStorage2D), so it must be recreated.
+	 * Changing the GL viewport alone is not enough: the color, id, and depth
+	 * attachments were allocated at a fixed size in initScene, so without
+	 * reallocating them the rendered image and the picking id-texture keep their
+	 * old resolution and object picking drifts once the canvas changes size.
+	 * Renderbuffers can be re-storaged in place; the id texture was created with
+	 * immutable storage (texStorage2D), so it must be recreated.
 	 *
-	 * _canvasSize is updated in place so holders of the reference (e.g. the
-	 * Picker) keep seeing the current size.
+	 * _canvasSize is updated in place so holders of the reference keep seeing
+	 * the current size.
 	 *
 	 * @param width - The new width in device pixels
 	 * @param height - The new height in device pixels
@@ -1123,13 +1017,22 @@ class Renderer {
 	}
 
 	/**
-	 * Allocates a new offscreen render target (see OffscreenRenderTarget's doc
-	 * comment) at the given pixel size, within this Renderer's own WebGL
+	 * A render target created by this backend. Targets are opaque to callers
+	 * (see RenderTarget) and always come back to the backend that made them, so
+	 * this cast is safe - it just re-attaches the type the caller dropped.
+	 */
+	private glTarget(target: RenderTarget): GLRenderTarget {
+		return target as GLRenderTarget;
+	}
+
+	/**
+	 * Allocates a new offscreen render target (see GLRenderTarget's doc
+	 * comment) at the given pixel size, within this backend's own WebGL
 	 * context. Call `deleteOffscreenTarget` when done with it (e.g. the Render
 	 * panel unmounts).
 	 */
-	createOffscreenTarget(width: number, height: number): OffscreenRenderTarget {
-		const target: OffscreenRenderTarget = {
+	createOffscreenTarget(width: number, height: number): RenderTarget {
+		const target: GLRenderTarget = {
 			framebuffer: this.assertCreated(
 				this._gl.createFramebuffer(),
 				"offscreen framebuffer"
@@ -1166,30 +1069,42 @@ class Renderer {
 	 * on every observed size without worrying about redundant reallocation.
 	 */
 	resizeOffscreenTarget(
-		target: OffscreenRenderTarget,
+		target: RenderTarget,
 		width: number,
 		height: number
 	): void {
+		const glTarget = this.glTarget(target);
 		const w = Math.max(1, Math.floor(width));
 		const h = Math.max(1, Math.floor(height));
-		if (target.width === w && target.height === h) {
+		if (glTarget.width === w && glTarget.height === h) {
 			return;
 		}
-		target.width = w;
-		target.height = h;
+		glTarget.width = w;
+		glTarget.height = h;
 
-		this._gl.bindFramebuffer(this._gl.FRAMEBUFFER, target.framebuffer);
+		this._gl.bindFramebuffer(this._gl.FRAMEBUFFER, glTarget.framebuffer);
 
-		this._gl.bindRenderbuffer(this._gl.RENDERBUFFER, target.colorRenderbuffer);
-		this._gl.renderbufferStorage(this._gl.RENDERBUFFER, this._gl.RGBA8, w, h);
+		this._gl.bindRenderbuffer(
+			this._gl.RENDERBUFFER,
+			glTarget.colorRenderbuffer
+		);
+		this._gl.renderbufferStorage(
+			this._gl.RENDERBUFFER,
+			this._gl.RGBA8,
+			w,
+			h
+		);
 		this._gl.framebufferRenderbuffer(
 			this._gl.FRAMEBUFFER,
 			this._gl.COLOR_ATTACHMENT0,
 			this._gl.RENDERBUFFER,
-			target.colorRenderbuffer
+			glTarget.colorRenderbuffer
 		);
 
-		this._gl.bindRenderbuffer(this._gl.RENDERBUFFER, target.depthRenderbuffer);
+		this._gl.bindRenderbuffer(
+			this._gl.RENDERBUFFER,
+			glTarget.depthRenderbuffer
+		);
 		this._gl.renderbufferStorage(
 			this._gl.RENDERBUFFER,
 			this._gl.DEPTH_COMPONENT16,
@@ -1200,7 +1115,7 @@ class Renderer {
 			this._gl.FRAMEBUFFER,
 			this._gl.DEPTH_ATTACHMENT,
 			this._gl.RENDERBUFFER,
-			target.depthRenderbuffer
+			glTarget.depthRenderbuffer
 		);
 
 		this._gl.bindRenderbuffer(this._gl.RENDERBUFFER, null);
@@ -1229,16 +1144,17 @@ class Renderer {
 	 * render at the wrong resolution.
 	 */
 	renderToTarget(
-		target: OffscreenRenderTarget,
+		target: RenderTarget,
 		renderables: Renderable[],
 		cam: Camera,
 		ambientLight: vec3,
 		lightPositions: vec3[]
 	): void {
+		const glTarget = this.glTarget(target);
 		this.ensureResources(renderables);
 
-		this._gl.bindFramebuffer(this._gl.FRAMEBUFFER, target.framebuffer);
-		this._gl.viewport(0, 0, target.width, target.height);
+		this._gl.bindFramebuffer(this._gl.FRAMEBUFFER, glTarget.framebuffer);
+		this._gl.viewport(0, 0, glTarget.width, glTarget.height);
 		this._gl.clearColor(
 			this._clearColor[0],
 			this._clearColor[1],
@@ -1257,42 +1173,61 @@ class Renderer {
 	 * Reads an offscreen target's color attachment back into CPU memory as
 	 * RGBA8 - a standard, always-readable readPixels format/type combination
 	 * for any implementation, unlike the id-texture's IMPLEMENTATION_COLOR_READ_*
-	 * branching in Picker.pick(). The Render panel wraps the result in an
-	 * ImageData and draws it to a plain 2D canvas.
+	 * branching in pick(). The Render panel wraps the result in an ImageData and
+	 * draws it to a plain 2D canvas.
 	 *
 	 * readPixels' origin is the bottom-left row (WebGL/GL convention); the
-	 * result is row-flipped in place before returning so it matches
-	 * top-left-origin image formats like ImageData.
+	 * result is row-flipped in place before returning so it matches the
+	 * top-left-origin RGBA8 that RenderBackend.readTargetPixels promises.
+	 *
+	 * Resolves immediately - the promise is for WebGPU's benefit, not WebGL's.
 	 */
-	readTargetPixels(target: OffscreenRenderTarget): Uint8Array {
-		const pixels = new Uint8Array(target.width * target.height * 4);
+	async readTargetPixels(target: RenderTarget): Promise<Uint8Array> {
+		const glTarget = this.glTarget(target);
+		const pixels = new Uint8Array(glTarget.width * glTarget.height * 4);
 
-		this._gl.bindFramebuffer(this._gl.FRAMEBUFFER, target.framebuffer);
+		this._gl.bindFramebuffer(this._gl.FRAMEBUFFER, glTarget.framebuffer);
 		this._gl.readBuffer(this._gl.COLOR_ATTACHMENT0);
 		this._gl.readPixels(
 			0,
 			0,
-			target.width,
-			target.height,
+			glTarget.width,
+			glTarget.height,
 			this._gl.RGBA,
 			this._gl.UNSIGNED_BYTE,
 			pixels
 		);
 		this._gl.bindFramebuffer(this._gl.FRAMEBUFFER, null);
 
-		flipRowsInPlace(pixels, target.width, target.height);
+		flipRowsInPlace(pixels, glTarget.width, glTarget.height);
 		return pixels;
 	}
 
 	/**
 	 * Frees an offscreen target's GPU memory. Call when done with it (e.g. the
 	 * Render panel unmounts, or is about to recreate the target against a new
-	 * WebGL context - see App.rendererGeneration).
+	 * backend - see App.rendererGeneration).
 	 */
-	deleteOffscreenTarget(target: OffscreenRenderTarget): void {
-		this._gl.deleteFramebuffer(target.framebuffer);
-		this._gl.deleteRenderbuffer(target.colorRenderbuffer);
-		this._gl.deleteRenderbuffer(target.depthRenderbuffer);
+	deleteOffscreenTarget(target: RenderTarget): void {
+		const glTarget = this.glTarget(target);
+		this._gl.deleteFramebuffer(glTarget.framebuffer);
+		this._gl.deleteRenderbuffer(glTarget.colorRenderbuffer);
+		this._gl.deleteRenderbuffer(glTarget.depthRenderbuffer);
+	}
+
+	/**
+	 * Releases the framebuffer and its attachments. Per-asset GPU resources
+	 * (mesh buffers, textures, programs) are intentionally *not* walked here:
+	 * they are cached in WeakMaps keyed by assets this backend does not own,
+	 * and dropping the context releases them anyway. The asset registry frees
+	 * them explicitly when an asset is unloaded while a canvas is still
+	 * attached.
+	 */
+	dispose(): void {
+		this._gl.deleteFramebuffer(this._frameBuffer);
+		this._gl.deleteRenderbuffer(this._renderBuffer);
+		this._gl.deleteRenderbuffer(this._depthBuffer);
+		this._gl.deleteTexture(this._idTexture);
 	}
 
 	/**
@@ -1304,17 +1239,18 @@ class Renderer {
 	 *
 	 * @param obj - The renderable to bind
 	 */
-	bindRenderable(obj: Renderable): void {
-		this._gl.bindVertexArray(obj.vertexBuffer.vao);
+	private bindRenderable(obj: Renderable): void {
+		const resources = this._resources.requireVertexBuffer(obj.vertexBuffer);
+		this._gl.bindVertexArray(resources.vao);
 		this.setMaterial(obj.material);
 	}
 
 	/**
 	 * Unbinds the vertex array object and shader.
 	 */
-	unbindRenderable(): void {
+	private unbindRenderable(): void {
 		this._gl.bindVertexArray(null);
-		this.dropProgram();
+		this._gl.useProgram(null);
 	}
 
 	/**
@@ -1323,7 +1259,7 @@ class Renderer {
 	 * @param type - The internal VertexTypes type to be converted
 	 * @returns - The WebGL value of the converted type
 	 */
-	toGLType(type: VertexTypes): number {
+	private toGLType(type: VertexTypes): number {
 		switch (type) {
 			case VertexTypes.FLOAT:
 				return this._gl.FLOAT;
@@ -1338,7 +1274,7 @@ class Renderer {
 	 * @param type - The VertexType to get the size of
 	 * @returns - The number of bytes required to store the input VertexType
 	 */
-	getTypeSize(type: VertexTypes): number {
+	private getTypeSize(type: VertexTypes): number {
 		switch (type) {
 			case VertexTypes.FLOAT:
 				return 4;
@@ -1352,10 +1288,14 @@ class Renderer {
  * Flips an RGBA8 pixel buffer's rows in place, converting between GL's
  * bottom-left-origin readPixels result and a top-left-origin image format
  * (ImageData, PNG, ...). Used by readTargetPixels; not needed anywhere else
- * in this renderer since the main canvas is presented via blitFramebuffer,
+ * in this backend since the main canvas is presented via blitFramebuffer,
  * which the browser already flips correctly on its own.
  */
-function flipRowsInPlace(pixels: Uint8Array, width: number, height: number): void {
+function flipRowsInPlace(
+	pixels: Uint8Array,
+	width: number,
+	height: number
+): void {
 	const rowBytes = width * 4;
 	const rowBuffer = new Uint8Array(rowBytes);
 	for (let y = 0; y < Math.floor(height / 2); y++) {
@@ -1367,4 +1307,4 @@ function flipRowsInPlace(pixels: Uint8Array, width: number, height: number): voi
 	}
 }
 
-export { Renderer };
+export { WebGLBackend, flipRowsInPlace };

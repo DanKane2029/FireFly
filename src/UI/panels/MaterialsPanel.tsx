@@ -54,7 +54,7 @@ export function MaterialsPanel() {
 
 	const remove = (id: AssetId) => {
 		assetRegistry.disposeMaterial(
-			app.isAttached ? app.renderer : undefined,
+			app.isAttached ? app.backend : undefined,
 			id
 		);
 		if (app.selectedMaterialId === id) {
